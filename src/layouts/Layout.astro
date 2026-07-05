@@ -8,11 +8,12 @@ interface Props {
 const { title, user, activePage } = Astro.props;
 
 const navItems = [
-  { href: '/dashboard', label: 'Dashboard', icon: '📊' },
+  { href: '/dashboard', label: 'Dashboard', icon: '' },
   { href: '/inventory', label: 'Inventory', icon: '📦' },
   { href: '/pos', label: 'Kasir / POS', icon: '🛒' },
   { href: '/restock', label: 'Restock', icon: '🔄' },
   { href: '/reports', label: 'Laporan', icon: '📈' },
+  { href: '/members', label: 'Members', icon: '👥', adminOnly: true },
 ];
 ---
 
@@ -284,7 +285,7 @@ const navItems = [
     <aside class="sidebar">
       <div class="sidebar-brand">️ <span>Kay</span>.id</div>
       <nav class="sidebar-nav">
-        {navItems.map((item) => (
+        {navItems.filter((item) => !item.adminOnly || user?.role === 'admin').map((item) => (
           <a href={item.href} class:list={[{ active: activePage === item.href }]}>
             <span>{item.icon}</span> {item.label}
           </a>

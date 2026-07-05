@@ -1,7 +1,9 @@
 import type { APIRoute } from 'astro';
 import { getDB } from '../../../lib/db';
-import { nanoid } from 'nanoid';
+import { OWNER_EMAIL, createSession, cleanupSessions } from '../../../lib/auth';
 
+// Quick login - RESTRICTED: only owner email allowed
+// In production, remove this endpoint and use Google SSO only
 export const POST: APIRoute = async ({ request }) => {
   const db = await getDB(request);
   const formData = await request.formData();
@@ -9,35 +11,40 @@ export const POST: APIRoute = async ({ request }) => {
   const email = formData.get('email') as string;
 
   if (!name || !email) {
-    return new Response('Name and email required', { status: 400 });
+    return new Response(null, {
+      status: 302,
+      headers: { Location: '/login?error=missing_fields' },
+    });
   }
 
-  // Upsert user
+  // SECURITY: Only allow owner email
+  if (email !== OWNER_EMAIL) {
+    return new Response(null, {
+      status: 302,
+      headers: { Location: '/login?error=not_authorized' },
+    });
+  }
+
+  await cleanupSessions(db);
+
+  // Upsert user as admin
   await db
     .prepare(
       `INSERT INTO users (id, email, name, role, last_login)
        VALUES (?, ?, ?, 'admin', datetime('now'))
        ON CONFLICT(email) DO UPDATE SET last_login = datetime('now'), name = excluded.name`
     )
-    .bind(nanoid(), email, name)
+    .bind(crypto.randomUUID(), email, name)
     .run();
 
   const user = await db.prepare('SELECT * FROM users WHERE email = ?').bind(email).first() as any;
-
-  // Create session
-  const token = nanoid(32);
-  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-
-  await db
-    .prepare('INSERT INTO sessions (id, user_id, token, expires_at) VALUES (?, ?, ?, ?)')
-    .bind(nanoid(), user.id, token, expiresAt)
-    .run();
+  const { cookie } = await createSession(db, user.id);
 
   return new Response(null, {
     status: 302,
     headers: {
       Location: '/dashboard',
-      'Set-Cookie': `session=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${7 * 24 * 60 * 60}`,
+      'Set-Cookie': cookie,
     },
   });
 };

@@ -1,31 +1,58 @@
 import type { APIRoute } from 'astro';
 import { getDB } from '../../../lib/db';
-import { nanoid } from 'nanoid';
+import { ALLOWED_EMAILS, OWNER_EMAIL, createSession, cleanupSessions } from '../../../lib/auth';
 
-// Google OAuth callback
+// Google OAuth callback - only allows tikaayuwijilestari@gmail.com
 export const GET: APIRoute = async ({ request }) => {
   const url = new URL(request.url);
   const code = url.searchParams.get('code');
+  const error = url.searchParams.get('error');
 
-  if (!code) {
-    return new Response('No code provided', { status: 400 });
+  if (error) {
+    return new Response(null, {
+      status: 302,
+      headers: { Location: '/login?error=access_denied' },
+    });
   }
 
-  // Exchange code for token (in production, use env vars for client_id/secret)
+  if (!code) {
+    return new Response(null, {
+      status: 302,
+      headers: { Location: '/login?error=no_code' },
+    });
+  }
+
+  // Use env vars for OAuth credentials (set in Cloudflare Pages environment variables)
+  const env = (request as any).env as any;
+  const clientId = env?.GOOGLE_CLIENT_ID || '';
+  const clientSecret = env?.GOOGLE_CLIENT_SECRET || '';
+
+  if (!clientId || !clientSecret) {
+    // Fallback: create session directly for the owner (for development)
+    // In production, remove this and use proper OAuth
+    return new Response(null, {
+      status: 302,
+      headers: { Location: '/login?error=oauth_not_configured' },
+    });
+  }
+
   const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       code,
-      client_id: '',
-      client_secret: '',
+      client_id: clientId,
+      client_secret: clientSecret,
       redirect_uri: url.origin + '/api/auth/callback',
       grant_type: 'authorization_code',
     }),
   });
 
   if (!tokenRes.ok) {
-    return new Response('Failed to exchange code', { status: 400 });
+    return new Response(null, {
+      status: 302,
+      headers: { Location: '/login?error=token_failed' },
+    });
   }
 
   const tokenData = await tokenRes.json() as any;
@@ -34,32 +61,40 @@ export const GET: APIRoute = async ({ request }) => {
   });
   const userInfo = await userInfoRes.json() as any;
 
+  // SECURITY: Only allow specific email addresses
+  if (!ALLOWED_EMAILS.includes(userInfo.email)) {
+    return new Response(null, {
+      status: 302,
+      headers: { Location: '/login?error=not_authorized' },
+    });
+  }
+
   const db = await getDB(request);
 
+  // Cleanup expired sessions
+  await cleanupSessions(db);
+
+  const isOwner = userInfo.email === OWNER_EMAIL;
+
+  // Upsert user
   await db
     .prepare(
       `INSERT INTO users (id, email, name, role, avatar_url, last_login)
-       VALUES (?, ?, ?, 'kasir', ?, datetime('now'))
-       ON CONFLICT(email) DO UPDATE SET last_login = datetime('now'), avatar_url = excluded.avatar_url`
+       VALUES (?, ?, ?, ?, ?, datetime('now'))
+       ON CONFLICT(email) DO UPDATE SET last_login = datetime('now'), name = excluded.name, avatar_url = excluded.avatar_url`
     )
-    .bind(nanoid(), userInfo.email, userInfo.name, userInfo.picture)
+    .bind(crypto.randomUUID(), userInfo.email, userInfo.name, isOwner ? 'admin' : 'kasir', userInfo.picture)
     .run();
 
   const user = await db.prepare('SELECT * FROM users WHERE email = ?').bind(userInfo.email).first() as any;
 
-  const token = nanoid(32);
-  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-
-  await db
-    .prepare('INSERT INTO sessions (id, user_id, token, expires_at) VALUES (?, ?, ?, ?)')
-    .bind(nanoid(), user.id, token, expiresAt)
-    .run();
+  const { cookie } = await createSession(db, user.id);
 
   return new Response(null, {
     status: 302,
     headers: {
       Location: '/dashboard',
-      'Set-Cookie': `session=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${7 * 24 * 60 * 60}`,
+      'Set-Cookie': cookie,
     },
   });
 };
