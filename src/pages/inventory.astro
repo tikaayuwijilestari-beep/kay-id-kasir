@@ -12,17 +12,23 @@ const db = await getDB(env);
 const url = new URL(Astro.request.url);
 const search = url.searchParams.get('q') || '';
 const kategori = url.searchParams.get('kategori') || '';
+const statusFilter = url.searchParams.get('status') || '';
 
 let query = 'SELECT * FROM inventory WHERE 1=1';
 const params: string[] = [];
 
 if (search) {
-  query += ' AND (nama_barang LIKE ? OR sku LIKE ? OR barcode LIKE ?)';
-  params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+  query += ' AND (nama_barang LIKE ? OR sku LIKE ? OR barcode LIKE ? OR merk LIKE ?)';
+  params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
 }
 if (kategori) {
   query += ' AND kategori = ?';
   params.push(kategori);
+}
+if (statusFilter === 'low') {
+  query += ' AND stock_saat_ini <= batas_stok_min';
+} else if (statusFilter === 'safe') {
+  query += ' AND stock_saat_ini > batas_stok_min';
 }
 
 query += ' ORDER BY created_at DESC';
@@ -31,144 +37,486 @@ const items = params.length > 0
   ? (await db.prepare(query).bind(...params).all()).results as any[]
   : (await db.prepare(query).all()).results as any[];
 
-const categories = (await db.prepare('SELECT DISTINCT kategori FROM inventory WHERE kategori IS NOT NULL').all()).results as any[];
+const categories = (await db.prepare('SELECT DISTINCT kategori FROM inventory WHERE kategori IS NOT NULL ORDER BY kategori').all()).results as any[];
+
+const summary = await db.prepare(`
+  SELECT
+    COUNT(*) as total,
+    SUM(nilai_aset) as total_value,
+    SUM(CASE WHEN stock_saat_ini <= batas_stok_min THEN 1 ELSE 0 END) as low_stock,
+    COUNT(DISTINCT kategori) as total_cat,
+    SUM(stock_saat_ini) as total_units
+  FROM inventory
+`).first() as any;
+
+interface ItemView {
+  id: string; sku: string; nama_barang: string; merk: string; kategori: string;
+  satuan: string; lokasi_rak: string; stock_saat_ini: number; batas_stok_min: number;
+  harga_beli_awal: number; harga_jual_eceran: number; nilai_aset: number;
+  cardClass: string; statusClass: string; statusText: string;
+  stockPct: number; stockColor: string; stockNumColor: string;
+  margin: number; marginColor: string; marginText: string;
+}
+
+const itemsView: ItemView[] = items.map((item: any) => {
+  const isLow = item.stock_saat_ini <= item.batas_stok_min;
+  const stockPct = item.batas_stok_min > 0 ? Math.min((item.stock_saat_ini / (item.batas_stok_min * 3)) * 100, 100) : 50;
+  const margin = item.harga_beli_awal > 0 ? Math.round(((item.harga_jual_eceran - item.harga_beli_awal) / item.harga_beli_awal) * 100) : 0;
+  return {
+    ...item,
+    cardClass: isLow ? 'item-card item-low' : 'item-card',
+    statusClass: isLow ? 'item-status status-low' : 'item-status status-ok',
+    statusText: isLow ? 'MENIPIS' : 'AMAN',
+    stockPct,
+    stockColor: isLow ? 'var(--danger)' : stockPct < 50 ? 'var(--warning)' : 'var(--success)',
+    stockNumColor: isLow ? 'var(--danger)' : 'var(--warning)',
+    margin,
+    marginColor: margin > 0 ? 'var(--success)' : 'var(--gray-500)',
+    marginText: margin > 0 ? `+${margin}%` : '-',
+  };
+});
 ---
 
 <Layout title="Inventory" user={user} activePage="/inventory">
   <div class="page-header">
-    <h1>Inventory / Master Barang</h1>
-    <button class="btn btn-primary" onclick="document.getElementById('addModal').classList.remove('hidden')">+ Tambah Barang</button>
+    <div>
+      <h1>Inventory</h1>
+      <p class="page-sub">Kelola semua barang toko bangunan Anda</p>
+    </div>
+    <button class="btn btn-primary btn-lg" onclick="document.getElementById('addModal').classList.remove('hidden')">
+      <span class="btn-icon">+</span> Tambah Barang
+    </button>
   </div>
 
-  <div class="card">
-    <div class="search-bar">
-      <form method="GET" style="display:flex;gap:0.5rem;flex:1;">
-        <input type="text" name="q" value={search} placeholder="Cari nama, SKU, atau barcode..." class="form-control" style="flex:1;" />
-        <select name="kategori" class="form-control" style="width:180px;">
-          <option value="">Semua Kategori</option>
-          {categories.map((c: any) => (
-            <option value={c.kategori} selected={kategori === c.kategori}>{c.kategori}</option>
-          ))}
-        </select>
-        <button type="submit" class="btn btn-primary">Cari</button>
-        <a href="/inventory" class="btn btn-outline">Reset</a>
-      </form>
+  <!-- Summary Cards -->
+  <div class="summary-grid">
+    <div class="sum-card">
+      <div class="sum-icon sum-blue">📦</div>
+      <div class="sum-info">
+        <span class="sum-value">{summary?.total || 0}</span>
+        <span class="sum-label">Total Produk</span>
+      </div>
     </div>
+    <div class="sum-card">
+      <div class="sum-icon sum-green">💰</div>
+      <div class="sum-info">
+        <span class="sum-value">{formatCurrency(summary?.total_value || 0)}</span>
+        <span class="sum-label">Nilai Aset</span>
+      </div>
+    </div>
+    <div class="sum-card">
+      <div class="sum-icon sum-amber">📊</div>
+      <div class="sum-info">
+        <span class="sum-value">{summary?.total_units || 0}</span>
+        <span class="sum-label">Total Unit</span>
+      </div>
+    </div>
+    <div class="sum-card">
+      <div class="sum-icon sum-red">⚠️</div>
+      <div class="sum-info">
+        <span class="sum-value">{summary?.low_stock || 0}</span>
+        <span class="sum-label">Stok Menipis</span>
+      </div>
+    </div>
+  </div>
 
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>SKU</th><th>Barcode</th><th>Nama Barang</th><th>Merk</th><th>Kategori</th>
-            <th>Satuan</th><th>Stock</th><th>Min</th><th>Harga Beli</th><th>Harga Jual</th>
-            <th>Nilai Aset</th><th>Profit</th><th>Status</th><th>Aksi</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((item: any) => (
-            <tr>
-              <td><code>{item.sku}</code></td>
-              <td><code>{item.barcode || '-'}</code></td>
-              <td><strong>{item.nama_barang}</strong></td>
-              <td>{item.merk || '-'}</td>
-              <td><span class="badge badge-info">{item.kategori || '-'}</span></td>
-              <td>{item.satuan}</td>
-              <td><strong>{item.stock_saat_ini}</strong></td>
-              <td>{item.batas_stok_min}</td>
-              <td>{formatCurrency(item.harga_beli_awal)}</td>
-              <td>{formatCurrency(item.harga_jual_eceran)}</td>
-              <td>{formatCurrency(item.nilai_aset)}</td>
-              <td style="color:var(--success);">{formatCurrency(item.keuntungan_penjualan)}</td>
-              <td>
-                {item.stock_saat_ini <= item.batas_stok_min
-                  ? <span class="badge badge-danger">MENIPIS</span>
-                  : <span class="badge badge-success">AMAN</span>}
-              </td>
-              <td>
-                <div class="flex gap-1">
-                  <a href={`/api/inventory/${item.id}/edit`} class="btn btn-outline btn-sm">Edit</a>
-                  <form action={`/api/inventory/${item.id}/delete`} method="POST" style="display:inline;">
-                    <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Hapus barang ini?')">Hapus</button>
-                  </form>
-                </div>
-              </td>
-            </tr>
-          ))}
-          {items.length === 0 && (
-            <tr><td colspan="14" class="text-center" style="padding:2rem;color:var(--gray-500);">Tidak ada data. Tambah barang pertama Anda.</td></tr>
-          )}
-        </tbody>
-      </table>
-    </div>
+  <!-- Search & Filter Bar -->
+  <div class="filter-bar">
+    <form method="GET" class="search-form">
+      <div class="search-input-wrap">
+        <span class="search-icon">🔍</span>
+        <input type="text" name="q" value={search} placeholder="Cari nama barang, SKU, barcode, atau merk..." class="search-input" />
+      </div>
+      <select name="kategori" class="filter-select">
+        <option value="">Semua Kategori</option>
+        {categories.map((c: any) => (
+          <option value={c.kategori} selected={kategori === c.kategori}>{c.kategori}</option>
+        ))}
+      </select>
+      <div class="status-chips">
+        <a href="/inventory?q={search}&kategori={kategori}" class={`chip ${!statusFilter ? 'chip-active' : ''}`}>Semua</a>
+        <a href="/inventory?q={search}&kategori={kategori}&status=safe" class={`chip ${statusFilter === 'safe' ? 'chip-active chip-safe' : ''}`}>✅ Aman</a>
+        <a href="/inventory?q={search}&kategori={kategori}&status=low" class={`chip ${statusFilter === 'low' ? 'chip-active chip-danger' : ''}`}>⚠️ Menipis</a>
+      </div>
+      <button type="submit" class="btn btn-primary">Cari</button>
+      <a href="/inventory" class="btn btn-outline">Reset</a>
+    </form>
+  </div>
+
+  <!-- Results Count -->
+  <div class="results-info">
+    Menampilkan <strong>{itemsView.length}</strong> dari <strong>{summary?.total || 0}</strong> produk
+    {kategori && <span class="active-filter">Kategori: {kategori}</span>}
+    {search && <span class="active-filter">Pencarian: "{search}"</span>}
+  </div>
+
+  <!-- Items Grid -->
+  <div class="items-grid">
+    {itemsView.map((item: ItemView) => (
+        <div class={item.cardClass}>
+          <div class="item-top">
+            <div class="item-sku">{item.sku}</div>
+            <span class={item.statusClass}>{item.statusText}</span>
+          </div>
+          <h4 class="item-name">{item.nama_barang}</h4>
+          {item.merk && <div class="item-merk">{item.merk}</div>}
+          <div class="item-tags">
+            {item.kategori && <span class="item-tag">{item.kategori}</span>}
+            <span class="item-tag">{item.satuan}</span>
+            {item.lokasi_rak && <span class="item-tag">📍 {item.lokasi_rak}</span>}
+          </div>
+          <div class="item-stock">
+            <div class="stock-header">
+              <span class="stock-label">Stok</span>
+              <span class="stock-value">{item.stock_saat_ini} <small>/ min {item.batas_stok_min}</small></span>
+            </div>
+            <div class="stock-track">
+              <div class="stock-fill" style={`width:${item.stockPct}%;background:${item.stockColor}`}></div>
+            </div>
+          </div>
+          <div class="item-prices">
+            <div class="price-row">
+              <span class="price-label">Beli</span>
+              <span class="price-val">{formatCurrency(item.harga_beli_awal)}</span>
+            </div>
+            <div class="price-row">
+              <span class="price-label">Jual</span>
+              <span class="price-val price-sell">{formatCurrency(item.harga_jual_eceran)}</span>
+            </div>
+            <div class="price-row">
+              <span class="price-label">Margin</span>
+              <span class="price-val" style={`color:${item.marginColor}`}>{item.marginText}</span>
+            </div>
+          </div>
+          <div class="item-footer">
+            <div class="item-asset">
+              <span>Aset: <strong>{formatCurrency(item.nilai_aset)}</strong></span>
+            </div>
+            <div class="item-actions">
+              <form action={`/api/inventory/${item.id}/delete`} method="POST" style="display:inline;">
+                <button type="submit" class="btn-delete" onclick={`return confirm('Hapus ${item.nama_barang}?')`}>🗑️</button>
+              </form>
+            </div>
+          </div>
+        </div>
+      ))}
+    {itemsView.length === 0 && (
+      <div class="empty-grid">
+        <div class="empty-icon"></div>
+        <h3>Tidak ada barang ditemukan</h3>
+        <p>{search || kategori || statusFilter ? 'Coba ubah filter pencarian Anda.' : 'Tambahkan barang pertama Anda untuk mulai mengelola inventory.'}</p>
+        {!search && !kategori && !statusFilter && (
+          <button class="btn btn-primary" onclick="document.getElementById('addModal').classList.remove('hidden')">+ Tambah Barang Pertama</button>
+        )}
+      </div>
+    )}
   </div>
 
   <!-- Add Modal -->
   <div id="addModal" class="modal-overlay hidden">
-    <div class="modal">
+    <div class="modal modal-lg">
       <div class="modal-header">
-        <h2>Tambah Barang Baru</h2>
+        <div>
+          <h2>Tambah Barang Baru</h2>
+          <p class="modal-sub">Lengkapi informasi barang di bawah ini</p>
+        </div>
         <button class="modal-close" onclick="document.getElementById('addModal').classList.add('hidden')">&times;</button>
       </div>
       <form action="/api/inventory/create" method="POST">
-        <div class="grid-2">
-          <div class="form-group">
-            <label>Nama Barang *</label>
-            <input type="text" name="nama_barang" class="form-control" required />
-          </div>
-          <div class="form-group">
-            <label>Merk / Brand</label>
-            <input type="text" name="merk" class="form-control" />
-          </div>
-          <div class="form-group">
-            <label>Kategori</label>
-            <input type="text" name="kategori" class="form-control" placeholder="Semen, Besi, Cat, dll" />
-          </div>
-          <div class="form-group">
-            <label>Satuan *</label>
-            <input type="text" name="satuan" class="form-control" required placeholder="Sak, Batang, Kg, Liter" />
-          </div>
-          <div class="form-group">
-            <label>Barcode</label>
-            <input type="text" name="barcode" class="form-control" placeholder="Scan atau ketik barcode" />
-          </div>
-          <div class="form-group">
-            <label>Lokasi Rak / Gudang</label>
-            <input type="text" name="lokasi_rak" class="form-control" />
-          </div>
-          <div class="form-group">
-            <label>Supplier Utama</label>
-            <input type="text" name="supplier" class="form-control" />
-          </div>
-          <div class="form-group">
-            <label>Batas Stok Minimum</label>
-            <input type="number" name="batas_stok_min" class="form-control" value="5" />
-          </div>
-          <div class="form-group">
-            <label>Stock Awal</label>
-            <input type="number" name="stock_awal" class="form-control" value="0" />
-          </div>
-          <div class="form-group">
-            <label>Harga Beli Awal (Rp)</label>
-            <input type="number" name="harga_beli_awal" class="form-control" value="0" />
-          </div>
-          <div class="form-group">
-            <label>Harga Jual Eceran (Rp)</label>
-            <input type="number" name="harga_jual_eceran" class="form-control" value="0" />
-          </div>
-          <div class="form-group">
-            <label>Harga Jual Grosir (Rp)</label>
-            <input type="number" name="harga_jual_grosir" class="form-control" value="0" />
+        <div class="form-section">
+          <h4 class="section-title">Informasi Dasar</h4>
+          <div class="grid-2">
+            <div class="form-group">
+              <label>Nama Barang *</label>
+              <input type="text" name="nama_barang" class="form-control" required placeholder="Contoh: Semen Portland 50kg" />
+            </div>
+            <div class="form-group">
+              <label>Merk / Brand</label>
+              <input type="text" name="merk" class="form-control" placeholder="Contoh: Holcim, Gresik" />
+            </div>
+            <div class="form-group">
+              <label>Kategori</label>
+              <input type="text" name="kategori" class="form-control" list="kategoriList" placeholder="Semen, Besi, Cat, dll" />
+              <datalist id="kategoriList">
+                {categories.map((c: any) => <option value={c.kategori} />)}
+              </datalist>
+            </div>
+            <div class="form-group">
+              <label>Satuan *</label>
+              <input type="text" name="satuan" class="form-control" required placeholder="Sak, Batang, Kg, Liter" />
+            </div>
           </div>
         </div>
-        <div class="form-group">
-          <label>Keterangan</label>
-          <textarea name="keterangan" class="form-control"></textarea>
+
+        <div class="form-section">
+          <h4 class="section-title">Detail & Lokasi</h4>
+          <div class="grid-3">
+            <div class="form-group">
+              <label>Barcode</label>
+              <input type="text" name="barcode" class="form-control" placeholder="Scan atau ketik" />
+            </div>
+            <div class="form-group">
+              <label>Lokasi Rak / Gudang</label>
+              <input type="text" name="lokasi_rak" class="form-control" placeholder="Rak A3, Gudang 2" />
+            </div>
+            <div class="form-group">
+              <label>Supplier Utama</label>
+              <input type="text" name="supplier" class="form-control" placeholder="Nama supplier" />
+            </div>
+          </div>
         </div>
-        <div class="flex gap-1" style="justify-content:flex-end;margin-top:1rem;">
+
+        <div class="form-section">
+          <h4 class="section-title">Stok</h4>
+          <div class="grid-3">
+            <div class="form-group">
+              <label>Stock Awal</label>
+              <input type="number" name="stock_awal" class="form-control" value="0" min="0" />
+            </div>
+            <div class="form-group">
+              <label>Batas Stok Minimum</label>
+              <input type="number" name="batas_stok_min" class="form-control" value="5" min="0" />
+            </div>
+            <div class="form-group">
+              <label>&nbsp;</label>
+              <div class="stock-hint">Barang akan ditandai "MENIPIS" jika stok ≤ batas minimum</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <h4 class="section-title">Harga</h4>
+          <div class="grid-3">
+            <div class="form-group">
+              <label>Harga Beli (Rp)</label>
+              <input type="number" name="harga_beli_awal" class="form-control" value="0" min="0" />
+            </div>
+            <div class="form-group">
+              <label>Harga Jual Eceran (Rp)</label>
+              <input type="number" name="harga_jual_eceran" class="form-control" value="0" min="0" />
+            </div>
+            <div class="form-group">
+              <label>Harga Jual Grosir (Rp)</label>
+              <input type="number" name="harga_jual_grosir" class="form-control" value="0" min="0" />
+            </div>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <h4 class="section-title">Keterangan</h4>
+          <textarea name="keterangan" class="form-control" rows="2" placeholder="Catatan tambahan (opsional)"></textarea>
+        </div>
+
+        <div class="modal-actions">
           <button type="button" class="btn btn-outline" onclick="document.getElementById('addModal').classList.add('hidden')">Batal</button>
-          <button type="submit" class="btn btn-primary">Simpan Barang</button>
+          <button type="submit" class="btn btn-primary btn-lg">Simpan Barang</button>
         </div>
       </form>
     </div>
   </div>
+
+  <style>
+    .page-sub { color: var(--gray-500); font-size: 0.9rem; margin-top: 0.2rem; }
+    .btn-lg { padding: 0.65rem 1.25rem; font-size: 0.95rem; }
+    .btn-icon { font-size: 1.1rem; font-weight: 700; }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0.75rem;
+      margin-bottom: 1.25rem;
+    }
+    .sum-card {
+      background: white;
+      border-radius: 0.85rem;
+      padding: 1rem 1.1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+      border: 1px solid var(--gray-200);
+    }
+    .sum-icon {
+      width: 44px; height: 44px;
+      border-radius: 0.65rem;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.3rem; flex-shrink: 0;
+    }
+    .sum-blue { background: #dbeafe; }
+    .sum-green { background: #d1fae5; }
+    .sum-amber { background: #fef3c7; }
+    .sum-red { background: #fee2e2; }
+    .sum-info { display: flex; flex-direction: column; }
+    .sum-value { font-size: 1.15rem; font-weight: 700; line-height: 1.2; }
+    .sum-label { font-size: 0.72rem; color: var(--gray-500); }
+
+    .filter-bar {
+      background: white;
+      border-radius: 0.85rem;
+      padding: 1rem 1.25rem;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+      border: 1px solid var(--gray-200);
+      margin-bottom: 0.75rem;
+    }
+    .search-form { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
+    .search-input-wrap {
+      flex: 1; min-width: 250px;
+      position: relative;
+    }
+    .search-icon {
+      position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%);
+      font-size: 0.9rem; pointer-events: none;
+    }
+    .search-input {
+      width: 100%; padding: 0.55rem 0.75rem 0.55rem 2.2rem;
+      border: 1px solid var(--gray-300); border-radius: 0.5rem;
+      font-size: 0.875rem; outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .search-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(26,86,219,0.1); }
+    .filter-select {
+      padding: 0.55rem 0.75rem; border: 1px solid var(--gray-300);
+      border-radius: 0.5rem; font-size: 0.85rem; outline: none;
+      background: white; min-width: 160px;
+    }
+    .status-chips { display: flex; gap: 0.4rem; }
+    .chip {
+      padding: 0.4rem 0.75rem; border-radius: 9999px;
+      font-size: 0.78rem; font-weight: 500;
+      text-decoration: none; color: var(--gray-700);
+      background: var(--gray-100); border: 1px solid var(--gray-200);
+      transition: all 0.15s; white-space: nowrap;
+    }
+    .chip:hover { background: var(--gray-200); }
+    .chip-active { background: var(--primary); color: white; border-color: var(--primary); }
+    .chip-safe.chip-active { background: var(--success); border-color: var(--success); }
+    .chip-danger.chip-active { background: var(--danger); border-color: var(--danger); }
+
+    .results-info {
+      font-size: 0.82rem; color: var(--gray-500);
+      margin-bottom: 1rem; display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;
+    }
+    .results-info strong { color: var(--gray-900); }
+    .active-filter {
+      background: var(--primary-light); color: var(--primary);
+      padding: 0.15rem 0.5rem; border-radius: 9999px; font-size: 0.72rem; font-weight: 500;
+    }
+
+    .items-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 1rem;
+    }
+    .item-card {
+      background: white;
+      border-radius: 1rem;
+      padding: 1.25rem;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+      border: 1px solid var(--gray-200);
+      border-left: 4px solid var(--success);
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .item-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(0,0,0,0.08);
+    }
+    .item-low { border-left-color: var(--danger); }
+    .item-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
+    .item-sku {
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 0.75rem; color: var(--gray-500);
+      background: var(--gray-100); padding: 0.15rem 0.5rem; border-radius: 0.3rem;
+    }
+    .item-status {
+      font-size: 0.68rem; font-weight: 700; padding: 0.2rem 0.5rem;
+      border-radius: 9999px; letter-spacing: 0.03em;
+    }
+    .status-ok { background: #d1fae5; color: #065f46; }
+    .status-low { background: #fee2e2; color: #991b1b; }
+    .item-name { font-size: 1rem; font-weight: 600; margin-bottom: 0.15rem; }
+    .item-merk { font-size: 0.78rem; color: var(--gray-500); margin-bottom: 0.5rem; }
+    .item-tags { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.75rem; }
+    .item-tag {
+      font-size: 0.7rem; padding: 0.15rem 0.5rem;
+      background: var(--gray-100); color: var(--gray-700);
+      border-radius: 0.3rem; font-weight: 500;
+    }
+    .item-stock { margin-bottom: 0.75rem; }
+    .stock-header { display: flex; justify-content: space-between; margin-bottom: 0.3rem; }
+    .stock-label { font-size: 0.72rem; color: var(--gray-500); font-weight: 500; }
+    .stock-value { font-size: 0.8rem; font-weight: 700; }
+    .stock-value small { font-weight: 400; color: var(--gray-500); }
+    .stock-track {
+      height: 6px; background: var(--gray-200);
+      border-radius: 3px; overflow: hidden;
+    }
+    .stock-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
+
+    .item-prices {
+      display: grid; grid-template-columns: 1fr 1fr 1fr;
+      gap: 0.5rem; padding: 0.65rem 0;
+      border-top: 1px solid var(--gray-100);
+      border-bottom: 1px solid var(--gray-100);
+      margin-bottom: 0.65rem;
+    }
+    .price-row { display: flex; flex-direction: column; gap: 0.1rem; }
+    .price-label { font-size: 0.65rem; color: var(--gray-500); text-transform: uppercase; letter-spacing: 0.03em; }
+    .price-val { font-size: 0.82rem; font-weight: 600; }
+    .price-sell { color: var(--primary); }
+
+    .item-footer { display: flex; justify-content: space-between; align-items: center; }
+    .item-asset { font-size: 0.75rem; color: var(--gray-500); }
+    .item-asset strong { color: var(--gray-900); }
+    .btn-delete {
+      background: none; border: none; cursor: pointer;
+      font-size: 1rem; padding: 0.3rem; border-radius: 0.4rem;
+      transition: background 0.15s;
+    }
+    .btn-delete:hover { background: #fee2e2; }
+
+    .empty-grid {
+      grid-column: 1 / -1;
+      text-align: center; padding: 4rem 2rem;
+      background: white; border-radius: 1rem;
+      border: 2px dashed var(--gray-200);
+    }
+    .empty-icon { font-size: 3rem; margin-bottom: 0.75rem; }
+    .empty-grid h3 { font-size: 1.1rem; margin-bottom: 0.4rem; }
+    .empty-grid p { color: var(--gray-500); font-size: 0.9rem; margin-bottom: 1.25rem; }
+
+    .modal-lg { max-width: 720px; }
+    .modal-sub { font-size: 0.82rem; color: var(--gray-500); margin-top: 0.2rem; }
+    .form-section {
+      margin-bottom: 1.25rem;
+      padding-bottom: 1.25rem;
+      border-bottom: 1px solid var(--gray-100);
+    }
+    .form-section:last-of-type { border-bottom: none; }
+    .section-title {
+      font-size: 0.85rem; font-weight: 600; color: var(--primary);
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.4rem;
+      border-bottom: 2px solid var(--primary-light);
+      display: inline-block;
+    }
+    .stock-hint {
+      font-size: 0.75rem; color: var(--gray-500);
+      background: #fef3c7; padding: 0.5rem 0.75rem;
+      border-radius: 0.5rem; border-left: 3px solid var(--warning);
+    }
+    .modal-actions {
+      display: flex; justify-content: flex-end; gap: 0.75rem;
+      margin-top: 1.5rem; padding-top: 1rem;
+      border-top: 1px solid var(--gray-200);
+    }
+
+    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+    @media (max-width: 768px) {
+      .summary-grid { grid-template-columns: repeat(2, 1fr); }
+      .items-grid { grid-template-columns: 1fr; }
+      .grid-3 { grid-template-columns: 1fr; }
+      .search-form { flex-direction: column; }
+      .search-input-wrap { min-width: 100%; }
+    }
+  </style>
 </Layout>

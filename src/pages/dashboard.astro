@@ -16,18 +16,25 @@ const stats = await db.prepare(`
     SUM(nilai_aset) as total_aset,
     SUM(nilai_barang_terjual) as total_terjual,
     SUM(keuntungan_penjualan) as total_profit,
-    SUM(CASE WHEN stock_saat_ini <= batas_stok_min THEN 1 ELSE 0 END) as low_stock
+    SUM(CASE WHEN stock_saat_ini <= batas_stok_min THEN 1 ELSE 0 END) as low_stock,
+    COUNT(DISTINCT kategori) as total_kategori
   FROM inventory
 `).first() as any;
 
 const todaySales = await db.prepare(`
-  SELECT COUNT(*) as cnt, COALESCE(SUM(total), 0) as total
+  SELECT COUNT(*) as cnt, COALESCE(SUM(total), 0) as total,
+    COALESCE(SUM(subtotal), 0) as subtotal_val
   FROM sales WHERE tanggal = date('now')
 `).first() as any;
 
 const monthSales = await db.prepare(`
   SELECT COUNT(*) as cnt, COALESCE(SUM(total), 0) as total
   FROM sales WHERE strftime('%Y-%m', tanggal) = strftime('%Y-%m', 'now')
+`).first() as any;
+
+const todayExpense = await db.prepare(`
+  SELECT COALESCE(SUM(r.total_biaya), 0) as total
+  FROM restock r WHERE r.tanggal = date('now') AND r.status = 'completed'
 `).first() as any;
 
 const recentSales = (await db.prepare(`
@@ -38,130 +45,199 @@ const lowStockItems = (await db.prepare(`
   SELECT * FROM inventory WHERE stock_saat_ini <= batas_stok_min ORDER BY stock_saat_ini ASC LIMIT 5
 `).all()).results as any[];
 
+const topProducts = (await db.prepare(`
+  SELECT i.nama_barang, i.sku, SUM(si.qty) as qty_sold, SUM(si.subtotal) as revenue
+  FROM sales_items si JOIN inventory i ON si.inventory_id = i.id
+  GROUP BY si.inventory_id ORDER BY qty_sold DESC LIMIT 5
+`).all()).results as any[];
+
 const totalProfit = stats?.total_profit || 0;
 const totalAsset = stats?.total_aset || 0;
 const totalSold = stats?.total_terjual || 0;
+const todayExp = todayExpense?.total || 0;
 ---
 
 <Layout title="Dashboard" user={user} activePage="/dashboard">
   <div class="dash-header">
-    <div>
-      <h1>Dashboard</h1>
+    <div class="dash-greeting">
+      <h1>Selamat Datang, {user?.name || 'Admin'} 👋</h1>
       <p class="date-text" id="currentDate"></p>
     </div>
-    <div class="clock-card" id="liveClock">--:--:--</div>
+    <div class="clock-card">
+      <div class="clock-time" id="liveClock">--:--:--</div>
+      <div class="clock-date" id="clockDateShort"></div>
+    </div>
   </div>
 
-  <!-- Financial Summary Cards -->
+  <!-- Main Finance Cards -->
   <div class="finance-grid">
-    <div class="fin-card fin-asset">
-      <div class="fin-icon">💰</div>
-      <div class="fin-info">
-        <span class="fin-label">Total Aset Gudang</span>
+    <div class="fin-card fin-gradient-1">
+      <div class="fin-content">
+        <span class="fin-label">Nilai Aset Gudang</span>
         <span class="fin-value">{formatCurrency(totalAsset)}</span>
-        <span class="fin-sub">{stats?.total_items || 0} item · {stats?.total_stock || 0} unit</span>
+        <div class="fin-meta">
+          <span>{stats?.total_items || 0} produk</span>
+          <span class="dot">·</span>
+          <span>{stats?.total_stock || 0} unit</span>
+        </div>
       </div>
+      <div class="fin-emoji"></div>
     </div>
-    <div class="fin-card fin-profit">
-      <div class="fin-icon">📈</div>
-      <div class="fin-info">
-        <span class="fin-label">Total Keuntungan</span>
+    <div class="fin-card fin-gradient-2">
+      <div class="fin-content">
+        <span class="fin-label">Total Profit</span>
         <span class="fin-value">{formatCurrency(totalProfit)}</span>
-        <span class="fin-sub">Dari {formatCurrency(totalSold)} penjualan</span>
+        <div class="fin-meta">
+          <span>Dari {formatCurrency(totalSold)}</span>
+          <span class="dot">·</span>
+          <span>total terjual</span>
+        </div>
       </div>
+      <div class="fin-emoji">💹</div>
     </div>
-    <div class="fin-card fin-today">
-      <div class="fin-icon">🛒</div>
-      <div class="fin-info">
+    <div class="fin-card fin-gradient-3">
+      <div class="fin-content">
         <span class="fin-label">Penjualan Hari Ini</span>
         <span class="fin-value">{formatCurrency(todaySales?.total || 0)}</span>
-        <span class="fin-sub">{todaySales?.cnt || 0} transaksi</span>
+        <div class="fin-meta">
+          <span>{todaySales?.cnt || 0} transaksi</span>
+          <span class="dot">·</span>
+          <span>Pengeluaran: {formatCurrency(todayExp)}</span>
+        </div>
       </div>
+      <div class="fin-emoji">🧾</div>
     </div>
-    <div class="fin-card fin-month">
-      <div class="fin-icon">📊</div>
-      <div class="fin-info">
+    <div class="fin-card fin-gradient-4">
+      <div class="fin-content">
         <span class="fin-label">Penjualan Bulan Ini</span>
         <span class="fin-value">{formatCurrency(monthSales?.total || 0)}</span>
-        <span class="fin-sub">{monthSales?.cnt || 0} transaksi</span>
+        <div class="fin-meta">
+          <span>{monthSales?.cnt || 0} transaksi</span>
+          <span class="dot">·</span>
+          <span>{stats?.total_kategori || 0} kategori</span>
+        </div>
       </div>
+      <div class="fin-emoji">📅</div>
     </div>
   </div>
 
-  <!-- Quick Stats Row -->
+  <!-- Quick Stats -->
   <div class="quick-stats">
     <div class="qs-item">
-      <span class="qs-num">{stats?.total_items || 0}</span>
-      <span class="qs-label">Total Produk</span>
+      <div class="qs-icon qs-blue">📦</div>
+      <div>
+        <span class="qs-num">{stats?.total_items || 0}</span>
+        <span class="qs-label">Total Produk</span>
+      </div>
     </div>
     <div class="qs-item">
-      <span class="qs-num">{stats?.total_stock || 0}</span>
-      <span class="qs-label">Total Stok</span>
+      <div class="qs-icon qs-green">📊</div>
+      <div>
+        <span class="qs-num">{stats?.total_stock || 0}</span>
+        <span class="qs-label">Total Stok</span>
+      </div>
     </div>
-    <div class="qs-item qs-warn">
-      <span class="qs-num">{stats?.low_stock || 0}</span>
-      <span class="qs-label">Stok Menipis</span>
+    <div class="qs-item qs-warn-item">
+      <div class="qs-icon qs-red">⚠️</div>
+      <div>
+        <span class="qs-num">{stats?.low_stock || 0}</span>
+        <span class="qs-label">Stok Menipis</span>
+      </div>
     </div>
-    <div class="qs-item qs-ok">
-      <span class="qs-num">{formatCurrency(totalProfit)}</span>
-      <span class="qs-label">Profit Kumulatif</span>
+    <div class="qs-item qs-ok-item">
+      <div class="qs-icon qs-emerald">💰</div>
+      <div>
+        <span class="qs-num">{formatCurrency(totalProfit)}</span>
+        <span class="qs-label">Profit Kumulatif</span>
+      </div>
     </div>
   </div>
 
-  <div class="grid-2">
-    <div class="card">
-      <div class="flex-between mb-1">
-        <h3>Penjualan Terbaru</h3>
-        <a href="/reports" class="btn btn-outline btn-sm">Lihat Semua</a>
+  <!-- Bottom Grid: Recent Sales + Low Stock + Top Products -->
+  <div class="bottom-grid">
+    <div class="dash-card">
+      <div class="card-header">
+        <h3> Penjualan Terbaru</h3>
+        <a href="/reports" class="btn-link">Lihat Semua →</a>
       </div>
-      <table>
-        <thead>
-          <tr><th>Invoice</th><th>Tanggal</th><th>Total</th><th>Status</th></tr>
-        </thead>
-        <tbody>
-          {recentSales.map((s: any) => (
-            <tr>
-              <td><strong>{s.invoice_no}</strong></td>
-              <td>{s.tanggal}</td>
-              <td>{formatCurrency(s.total)}</td>
-              <td><span class="badge badge-success">{s.payment_status}</span></td>
-            </tr>
-          ))}
-          {(!recentSales || recentSales.length === 0) && (
-            <tr><td colspan="4" class="text-center" style="color:var(--gray-500);padding:2rem;">Belum ada penjualan</td></tr>
-          )}
-        </tbody>
-      </table>
+      <div class="card-body">
+        {recentSales.map((s: any) => (
+          <div class="sale-row">
+            <div class="sale-info">
+              <strong>{s.invoice_no}</strong>
+              <span class="sale-date">{s.tanggal}</span>
+            </div>
+            <div class="sale-right">
+              <span class="sale-total">{formatCurrency(s.total)}</span>
+              <span class="badge badge-success">{s.payment_method === 'manual' ? 'Tunai' : s.payment_method === 'qris' ? 'QRIS' : 'Transfer'}</span>
+            </div>
+          </div>
+        ))}
+        {(!recentSales || recentSales.length === 0) && (
+          <div class="empty-state"> Belum ada penjualan</div>
+        )}
+      </div>
     </div>
 
-    <div class="card">
-      <div class="flex-between mb-1">
-        <h3>Stok Menipis ({stats?.low_stock || 0})</h3>
-        <a href="/inventory" class="btn btn-outline btn-sm">Kelola</a>
+    <div class="dash-card">
+      <div class="card-header">
+        <h3> Produk Terlaris</h3>
+        <a href="/inventory" class="btn-link">Kelola →</a>
       </div>
-      <table>
-        <thead>
-          <tr><th>SKU</th><th>Nama</th><th>Stock</th><th>Min</th></tr>
-        </thead>
-        <tbody>
-          {lowStockItems.map((item: any) => (
-            <tr>
-              <td><code>{item.sku}</code></td>
-              <td>{item.nama_barang}</td>
-              <td><span class="badge badge-danger">{item.stock_saat_ini}</span></td>
-              <td>{item.batas_stok_min}</td>
-            </tr>
-          ))}
-          {(!lowStockItems || lowStockItems.length === 0) && (
-            <tr><td colspan="4" class="text-center" style="color:var(--gray-500);padding:2rem;">Semua stok aman</td></tr>
-          )}
-        </tbody>
-      </table>
+      <div class="card-body">
+        {topProducts.map((p: any, i: number) => (
+          <div class="sale-row">
+            <div class="sale-info">
+              <span class="rank-badge">#{i + 1}</span>
+              <div>
+                <strong>{p.nama_barang}</strong>
+                <span class="sale-date">{p.sku} · {p.qty_sold} terjual</span>
+              </div>
+            </div>
+            <div class="sale-right">
+              <span class="sale-total">{formatCurrency(p.revenue)}</span>
+            </div>
+          </div>
+        ))}
+        {(!topProducts || topProducts.length === 0) && (
+          <div class="empty-state">📦 Belum ada data penjualan</div>
+        )}
+      </div>
+    </div>
+
+    <div class="dash-card">
+      <div class="card-header">
+        <h3>⚠️ Stok Menipis ({stats?.low_stock || 0})</h3>
+        <a href="/inventory" class="btn-link">Kelola →</a>
+      </div>
+      <div class="card-body">
+        {lowStockItems.map((item: any) => {
+          const pct = item.batas_stok_min > 0 ? Math.min((item.stock_saat_ini / item.batas_stok_min) * 100, 100) : 0;
+          const barColor = pct < 30 ? 'var(--danger)' : pct < 70 ? 'var(--warning)' : 'var(--success)';
+          const numColor = pct < 30 ? 'var(--danger)' : 'var(--warning)';
+          return (
+            <div class="stock-row">
+              <div class="stock-info">
+                <strong>{item.nama_barang}</strong>
+                <span class="sale-date">{item.sku} · Min: {item.batas_stok_min} {item.satuan}</span>
+              </div>
+              <div class="stock-right">
+                <div class="stock-bar-wrap">
+                  <div class="stock-bar" style={`width:${pct}%;background:${barColor}`}></div>
+                </div>
+                <span class="stock-num" style={`color:${numColor}`}>{item.stock_saat_ini}</span>
+              </div>
+            </div>
+          );
+        })}
+        {(!lowStockItems || lowStockItems.length === 0) && (
+          <div class="empty-state">✅ Semua stok aman</div>
+        )}
+      </div>
     </div>
   </div>
 
   <script>
-    // Live clock
     function updateClock() {
       const now = new Date();
       const time = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -171,6 +247,10 @@ const totalSold = stats?.total_terjual || 0;
       const date = now.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
       const dateEl = document.getElementById('currentDate');
       if (dateEl) dateEl.textContent = date;
+
+      const short = now.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
+      const shortEl = document.getElementById('clockDateShort');
+      if (shortEl) shortEl.textContent = short;
     }
     updateClock();
     setInterval(updateClock, 1000);
@@ -183,19 +263,26 @@ const totalSold = stats?.total_terjual || 0;
       align-items: flex-start;
       margin-bottom: 1.5rem;
     }
-    .dash-header h1 { font-size: 1.6rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .dash-greeting h1 { font-size: 1.6rem; font-weight: 700; margin-bottom: 0.2rem; }
     .date-text { color: var(--gray-500); font-size: 0.9rem; }
     .clock-card {
-      background: var(--gray-900);
-      color: #60a5fa;
+      background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+      color: white;
+      padding: 0.75rem 1.5rem;
+      border-radius: 1rem;
+      text-align: center;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+      min-width: 140px;
+    }
+    .clock-time {
       font-size: 1.8rem;
       font-weight: 700;
-      font-family: 'SF Mono', 'Fira Code', monospace;
-      padding: 0.6rem 1.2rem;
-      border-radius: 0.75rem;
+      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      color: #60a5fa;
       letter-spacing: 0.05em;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
     }
+    .clock-date { font-size: 0.7rem; color: rgba(255,255,255,0.5); margin-top: 0.15rem; }
+
     .finance-grid {
       display: grid;
       grid-template-columns: repeat(2, 1fr);
@@ -203,62 +290,175 @@ const totalSold = stats?.total_terjual || 0;
       margin-bottom: 1rem;
     }
     .fin-card {
-      background: white;
       border-radius: 1rem;
-      padding: 1.25rem;
+      padding: 1.5rem;
       display: flex;
+      justify-content: space-between;
       align-items: center;
-      gap: 1rem;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-      border-left: 4px solid var(--primary);
-      transition: transform 0.15s, box-shadow 0.15s;
+      color: white;
+      transition: transform 0.2s, box-shadow 0.2s;
+      cursor: default;
+      position: relative;
+      overflow: hidden;
+    }
+    .fin-card::before {
+      content: '';
+      position: absolute;
+      top: -50%;
+      right: -20%;
+      width: 200px;
+      height: 200px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.08);
     }
     .fin-card:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 6px 20px rgba(0,0,0,0.1);
+      transform: translateY(-3px);
+      box-shadow: 0 12px 32px rgba(0,0,0,0.15);
     }
-    .fin-asset { border-left-color: #1a56db; }
-    .fin-profit { border-left-color: #059669; }
-    .fin-today { border-left-color: #d97706; }
-    .fin-month { border-left-color: #7c3aed; }
-    .fin-icon {
-      font-size: 2rem;
-      width: 56px;
-      height: 56px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      border-radius: 0.75rem;
-      flex-shrink: 0;
-    }
-    .fin-asset .fin-icon { background: #dbeafe; }
-    .fin-profit .fin-icon { background: #d1fae5; }
-    .fin-today .fin-icon { background: #fef3c7; }
-    .fin-month .fin-icon { background: #ede9fe; }
-    .fin-info { display: flex; flex-direction: column; gap: 0.15rem; }
-    .fin-label { font-size: 0.8rem; color: var(--gray-500); font-weight: 500; }
-    .fin-value { font-size: 1.35rem; font-weight: 700; color: var(--gray-900); }
-    .fin-sub { font-size: 0.75rem; color: var(--gray-500); }
+    .fin-gradient-1 { background: linear-gradient(135deg, #1a56db 0%, #3b82f6 100%); }
+    .fin-gradient-2 { background: linear-gradient(135deg, #059669 0%, #10b981 100%); }
+    .fin-gradient-3 { background: linear-gradient(135deg, #d97706 0%, #f59e0b 100%); }
+    .fin-gradient-4 { background: linear-gradient(135deg, #7c3aed 0%, #8b5cf6 100%); }
+    .fin-content { display: flex; flex-direction: column; gap: 0.2rem; z-index: 1; }
+    .fin-label { font-size: 0.8rem; opacity: 0.85; font-weight: 500; }
+    .fin-value { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; }
+    .fin-meta { font-size: 0.72rem; opacity: 0.75; display: flex; gap: 0.3rem; align-items: center; margin-top: 0.2rem; }
+    .fin-meta .dot { opacity: 0.5; }
+    .fin-emoji { font-size: 2.5rem; z-index: 1; opacity: 0.9; }
+
     .quick-stats {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
       gap: 0.75rem;
-      margin-bottom: 1rem;
+      margin-bottom: 1.5rem;
     }
     .qs-item {
       background: white;
-      border-radius: 0.75rem;
-      padding: 1rem;
-      text-align: center;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+      border-radius: 0.85rem;
+      padding: 1rem 1.1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+      border: 1px solid var(--gray-200);
     }
-    .qs-num { display: block; font-size: 1.2rem; font-weight: 700; color: var(--gray-900); }
-    .qs-label { display: block; font-size: 0.75rem; color: var(--gray-500); margin-top: 0.2rem; }
-    .qs-warn .qs-num { color: var(--danger); }
-    .qs-ok .qs-num { color: var(--success); font-size: 1rem; }
+    .qs-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 0.6rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.2rem;
+      flex-shrink: 0;
+    }
+    .qs-blue { background: #dbeafe; }
+    .qs-green { background: #d1fae5; }
+    .qs-red { background: #fee2e2; }
+    .qs-emerald { background: #a7f3d0; }
+    .qs-item > div { display: flex; flex-direction: column; }
+    .qs-num { font-size: 1.1rem; font-weight: 700; color: var(--gray-900); line-height: 1.2; }
+    .qs-label { font-size: 0.72rem; color: var(--gray-500); }
+    .qs-warn-item .qs-num { color: var(--danger); }
+    .qs-ok-item .qs-num { color: var(--success); font-size: 0.95rem; }
+
+    .bottom-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 1rem;
+    }
+    .dash-card {
+      background: white;
+      border-radius: 1rem;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+      border: 1px solid var(--gray-200);
+      overflow: hidden;
+    }
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid var(--gray-100);
+    }
+    .card-header h3 { font-size: 0.95rem; font-weight: 600; }
+    .btn-link {
+      font-size: 0.78rem;
+      color: var(--primary);
+      text-decoration: none;
+      font-weight: 500;
+    }
+    .btn-link:hover { text-decoration: underline; }
+    .card-body { padding: 0.5rem 0; }
+
+    .sale-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.7rem 1.25rem;
+      transition: background 0.1s;
+    }
+    .sale-row:hover { background: var(--gray-50); }
+    .sale-info { display: flex; flex-direction: column; gap: 0.1rem; }
+    .sale-info strong { font-size: 0.85rem; }
+    .sale-date { font-size: 0.72rem; color: var(--gray-500); }
+    .sale-right { display: flex; flex-direction: column; align-items: flex-end; gap: 0.2rem; }
+    .sale-total { font-size: 0.9rem; font-weight: 700; }
+
+    .rank-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: var(--primary-light);
+      color: var(--primary);
+      font-size: 0.7rem;
+      font-weight: 700;
+      margin-right: 0.5rem;
+    }
+    .sale-info .rank-badge + div { display: flex; flex-direction: column; gap: 0.1rem; }
+    .sale-info:has(.rank-badge) { flex-direction: row; align-items: center; }
+
+    .stock-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.7rem 1.25rem;
+    }
+    .stock-row:hover { background: var(--gray-50); }
+    .stock-info { display: flex; flex-direction: column; gap: 0.1rem; }
+    .stock-info strong { font-size: 0.85rem; }
+    .stock-right { display: flex; align-items: center; gap: 0.6rem; }
+    .stock-bar-wrap {
+      width: 60px;
+      height: 6px;
+      background: var(--gray-200);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .stock-bar {
+      height: 100%;
+      border-radius: 3px;
+      transition: width 0.3s;
+    }
+    .stock-num { font-size: 0.85rem; font-weight: 700; min-width: 24px; text-align: right; }
+
+    .empty-state {
+      text-align: center;
+      padding: 2rem 1rem;
+      color: var(--gray-500);
+      font-size: 0.85rem;
+    }
+
+    @media (max-width: 1024px) {
+      .bottom-grid { grid-template-columns: 1fr 1fr; }
+    }
     @media (max-width: 768px) {
       .finance-grid { grid-template-columns: 1fr; }
       .quick-stats { grid-template-columns: repeat(2, 1fr); }
+      .bottom-grid { grid-template-columns: 1fr; }
       .dash-header { flex-direction: column; gap: 0.75rem; }
     }
   </style>
