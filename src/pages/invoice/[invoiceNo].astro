@@ -1,0 +1,449 @@
+---
+import { getDB, getEnvFromLocals } from '../../lib/db';
+import { formatCurrency } from '../../lib/auth';
+
+// Public invoice page - no auth required
+// Accessible via /invoice/[invoiceNo]
+const env = getEnvFromLocals(Astro.locals);
+const db = await getDB(env);
+const invoiceNo = Astro.params.invoiceNo;
+
+const sale = await db.prepare('SELECT * FROM sales WHERE invoice_no = ?').bind(invoiceNo).first() as any;
+
+if (!sale) {
+  return new Response('Invoice tidak ditemukan', { status: 404 });
+}
+
+const items = (await db.prepare('SELECT * FROM sales_items WHERE sale_id = ?').bind(sale.id).all()).results as any[];
+
+function formatDate(d: string) {
+  return new Date(d).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+}
+
+const siteUrl = 'https://kayid.pages.dev';
+---
+
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Invoice {invoiceNo} — KAY ID Toko Bangunan</title>
+  <meta property="og:title" content={`Invoice ${invoiceNo} — KAY ID Toko Bangunan`} />
+  <meta property="og:description" content={`Total: ${formatCurrency(sale.total)} | ${items.length} item`} />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content={`${siteUrl}/invoice/${invoiceNo}`} />
+  <style>
+    :root {
+      --primary: #4338ca;
+      --primary-light: #e0e7ff;
+      --success: #059669;
+      --text: #1e293b;
+      --text-secondary: #64748b;
+      --border: #e2e8f0;
+      --bg: #f8fafc;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+    .invoice-container {
+      max-width: 480px;
+      margin: 0 auto;
+      padding: 1rem;
+    }
+    .invoice-card {
+      background: white;
+      border-radius: 1rem;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+      overflow: hidden;
+    }
+    /* Header */
+    .inv-header {
+      background: linear-gradient(135deg, #4338ca 0%, #6366f1 100%);
+      color: white;
+      padding: 1.5rem;
+      text-align: center;
+    }
+    .inv-brand {
+      font-size: 1.5rem;
+      font-weight: 800;
+      letter-spacing: 1px;
+    }
+    .inv-brand-sub {
+      font-size: 0.75rem;
+      opacity: 0.85;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      margin-top: 0.15rem;
+    }
+    .inv-number {
+      margin-top: 1rem;
+      font-size: 0.8rem;
+      opacity: 0.9;
+    }
+    .inv-number strong {
+      display: block;
+      font-size: 1.1rem;
+      opacity: 1;
+      margin-top: 0.2rem;
+    }
+    /* Body */
+    .inv-body { padding: 1.25rem; }
+    .inv-meta {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.75rem;
+      margin-bottom: 1.25rem;
+      font-size: 0.82rem;
+    }
+    .inv-meta-item label {
+      display: block;
+      color: var(--text-secondary);
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 0.15rem;
+    }
+    .inv-meta-item span {
+      font-weight: 600;
+    }
+    /* Items */
+    .inv-items { margin-bottom: 1.25rem; }
+    .inv-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      padding: 0.75rem 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .inv-item:last-child { border-bottom: none; }
+    .inv-item-info { flex: 1; }
+    .inv-item-name {
+      font-weight: 600;
+      font-size: 0.88rem;
+      margin-bottom: 0.15rem;
+    }
+    .inv-item-detail {
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+    }
+    .inv-item-price {
+      font-weight: 700;
+      font-size: 0.88rem;
+      text-align: right;
+      white-space: nowrap;
+    }
+    /* Totals */
+    .inv-totals {
+      background: var(--bg);
+      border-radius: 0.75rem;
+      padding: 1rem;
+      margin-bottom: 1.25rem;
+    }
+    .inv-total-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 0.35rem 0;
+      font-size: 0.85rem;
+    }
+    .inv-total-row.grand {
+      font-size: 1.15rem;
+      font-weight: 800;
+      color: var(--primary);
+      border-top: 2px solid var(--primary);
+      padding-top: 0.75rem;
+      margin-top: 0.5rem;
+    }
+    /* Payment badge */
+    .inv-payment {
+      display: inline-block;
+      padding: 0.25rem 0.75rem;
+      border-radius: 999px;
+      font-size: 0.72rem;
+      font-weight: 700;
+    }
+    .pay-tunai { background: #d1fae5; color: #065f46; }
+    .pay-qris { background: var(--primary-light); color: var(--primary); }
+    .pay-transfer { background: #fef3c7; color: #92400e; }
+    /* Footer */
+    .inv-footer {
+      text-align: center;
+      padding: 1.25rem;
+      border-top: 1px solid var(--border);
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+    }
+    .inv-footer .thankyou {
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 0.25rem;
+    }
+    /* Notes */
+    .inv-notes {
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      border-radius: 0.5rem;
+      padding: 0.75rem;
+      font-size: 0.8rem;
+      color: #92400e;
+      margin-bottom: 1rem;
+    }
+    /* Discount Box */
+    .inv-discount-box {
+      background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+      border: 2px solid #f59e0b;
+      border-radius: 0.75rem;
+      padding: 0.85rem 1rem;
+      margin-bottom: 1rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .inv-discount-label {
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: #92400e;
+    }
+    .inv-discount-amount {
+      font-size: 1.1rem;
+      font-weight: 800;
+      color: #dc2626;
+    }
+    /* Actions */
+    .inv-actions {
+      display: flex;
+      gap: 0.5rem;
+      padding: 0 1.25rem 1.25rem;
+    }
+    .inv-btn {
+      flex: 1;
+      padding: 0.7rem;
+      border-radius: 0.65rem;
+      font-size: 0.82rem;
+      font-weight: 700;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.4rem;
+      text-decoration: none;
+    }
+    .inv-btn-wa {
+      background: #25d366;
+      color: white;
+    }
+    .inv-btn-wa:hover { background: #1da851; }
+    .inv-btn-print {
+      background: var(--primary-light);
+      color: var(--primary);
+    }
+    .inv-btn-print:hover { background: #c7d2fe; }
+    /* Print */
+    @media print {
+      body { background: white; }
+      .invoice-container { padding: 0; max-width: 100%; }
+      .invoice-card { box-shadow: none; border-radius: 0; }
+      .inv-actions { display: none; }
+    }
+    /* LUNAS Stamp */
+    .inv-stamp {
+      position: relative;
+      display: flex;
+      justify-content: center;
+      margin: 1.5rem 0 1rem;
+    }
+    .inv-stamp-inner {
+      position: relative;
+      display: inline-block;
+      border: 5px double #dc2626;
+      border-radius: 50%;
+      width: 140px;
+      height: 140px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      transform: rotate(-12deg);
+      opacity: 0.85;
+      box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.3), inset 0 0 0 2px rgba(220, 38, 38, 0.2);
+    }
+    .inv-stamp-inner::before {
+      content: '';
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      right: 8px;
+      bottom: 8px;
+      border: 2px solid #dc2626;
+      border-radius: 50%;
+      opacity: 0.6;
+    }
+    .inv-stamp-text {
+      font-size: 1.8rem;
+      font-weight: 900;
+      color: #dc2626;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+      font-family: 'Courier New', monospace;
+      text-shadow: 1px 1px 2px rgba(220, 38, 38, 0.3);
+      position: relative;
+      z-index: 1;
+    }
+    .inv-stamp-date {
+      font-size: 0.65rem;
+      color: #dc2626;
+      font-weight: 700;
+      margin-top: 4px;
+      letter-spacing: 1px;
+      position: relative;
+      z-index: 1;
+    }
+    @media (max-width: 480px) {
+      .invoice-container { padding: 0.5rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="invoice-container">
+    <div class="invoice-card">
+      <!-- Header -->
+      <div class="inv-header">
+        <div class="inv-brand">KAY ID</div>
+        <div class="inv-brand-sub">Toko Bangunan</div>
+        <div class="inv-number">
+          Invoice
+          <strong>{invoiceNo}</strong>
+        </div>
+      </div>
+
+      <!-- Body -->
+      <div class="inv-body">
+        <!-- Meta -->
+        <div class="inv-meta">
+          <div class="inv-meta-item">
+            <label>Tanggal</label>
+            <span>{formatDate(sale.tanggal)}</span>
+          </div>
+          <div class="inv-meta-item">
+            <label>Pembayaran</label>
+            <span class="inv-payment pay-{sale.payment_method === 'manual' ? 'tunai' : sale.payment_method}">
+              {sale.payment_method === 'manual' ? 'Tunai' : sale.payment_method === 'qris' ? 'QRIS' : 'Transfer'}
+            </span>
+          </div>
+          {sale.customer_name && (
+            <div class="inv-meta-item">
+              <label>Pelanggan</label>
+              <span>{sale.customer_name}</span>
+            </div>
+          )}
+          <div class="inv-meta-item">
+            <label>Total Item</label>
+            <span>{sale.total_items} barang</span>
+          </div>
+        </div>
+
+        <!-- Items -->
+        <div class="inv-items">
+          {items.map((item: any) => (
+            <div class="inv-item">
+              <div class="inv-item-info">
+                <div class="inv-item-name">{item.nama_barang}</div>
+                <div class="inv-item-detail">
+                  {item.qty} x {formatCurrency(item.harga_satuan)}
+                </div>
+              </div>
+              <div class="inv-item-price">{formatCurrency(item.subtotal)}</div>
+            </div>
+          ))}
+        </div>
+
+        <!-- Discount Highlight -->
+        {sale.discount > 0 && (
+          <div class="inv-discount-box">
+            <span class="inv-discount-label">💰 Diskon</span>
+            <span class="inv-discount-amount">-{formatCurrency(sale.discount)}</span>
+          </div>
+        )}
+
+        <!-- Totals -->
+        <div class="inv-totals">
+          <div class="inv-total-row">
+            <span>Subtotal</span>
+            <span>{formatCurrency(sale.subtotal)}</span>
+          </div>
+          {sale.discount > 0 && (
+            <div class="inv-total-row">
+              <span>Diskon</span>
+              <span>-{formatCurrency(sale.discount)}</span>
+            </div>
+          )}
+          <div class="inv-total-row grand">
+            <span>TOTAL</span>
+            <span>{formatCurrency(sale.total)}</span>
+          </div>
+        </div>
+
+        {sale.notes && (
+          <div class="inv-notes">
+            <strong>Catatan:</strong> {sale.notes}
+          </div>
+        )}
+
+        <!-- LUNAS Stamp -->
+        <div class="inv-stamp">
+          <div class="inv-stamp-inner">
+            <div class="inv-stamp-text">LUNAS</div>
+            <div class="inv-stamp-date">{formatDate(sale.tanggal)}</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="inv-actions">
+        <a class="inv-btn inv-btn-wa" id="shareWaBtn" href="#">
+          📱 Kirim via WhatsApp
+        </a>
+        <a class="inv-btn inv-btn-print" href={`/api/sales/${invoiceNo}/pdf`} target="_blank">
+          🖨️ Cetak
+        </a>
+      </div>
+
+      <!-- Footer -->
+      <div class="inv-footer">
+        <div class="thankyou">Terima kasih! 🙏</div>
+        <p>Barang yang sudah dibeli tidak dapat dikembalikan</p>
+        <p style="margin-top:0.5rem;">KAY ID TOKO BANGUNAN</p>
+      </div>
+    </div>
+  </div>
+
+  <script is:inline>
+    // Generate WhatsApp share link
+    (function() {
+      const url = window.location.href;
+      const invoiceNo = document.querySelector('.inv-number strong')?.textContent || '';
+      const totalText = document.querySelector('.inv-total-row.grand span:last-child')?.textContent || '';
+
+      const msg = `📋 *NOTA PEMBELIAN*\n` +
+        `KAY ID TOKO BANGUNAN\n` +
+        `━━━━━━━━━━━━━━━━━━\n` +
+        `No: ${invoiceNo}\n` +
+        `Total: ${totalText}\n` +
+        `━━━━━━━━━━━━━━━━━━\n` +
+        `Lihat nota lengkap:\n${url}`;
+
+      const waBtn = document.getElementById('shareWaBtn');
+      if (waBtn) {
+        waBtn.href = 'https://wa.me/?text=' + encodeURIComponent(msg);
+      }
+    })();
+  </script>
+</body>
+</html>

@@ -90,6 +90,25 @@ CREATE TABLE IF NOT EXISTS sessions (
   FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
+CREATE TABLE IF NOT EXISTS email_settings (
+  id TEXT PRIMARY KEY DEFAULT 'main',
+  resend_api_key TEXT,
+  recipient_emails TEXT,
+  weekly_enabled INTEGER DEFAULT 1,
+  monthly_enabled INTEGER DEFAULT 1,
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS email_history (
+  id TEXT PRIMARY KEY,
+  type TEXT NOT NULL,
+  period_label TEXT,
+  recipients TEXT,
+  status TEXT DEFAULT 'sent',
+  error_message TEXT,
+  sent_at TEXT DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_inventory_sku ON inventory(sku);
 CREATE INDEX IF NOT EXISTS idx_inventory_barcode ON inventory(barcode);
 CREATE INDEX IF NOT EXISTS idx_inventory_kategori ON inventory(kategori);
@@ -98,12 +117,28 @@ CREATE INDEX IF NOT EXISTS idx_sales_invoice ON sales(invoice_no);
 CREATE INDEX IF NOT EXISTS idx_sales_items_sale ON sales_items(sale_id);
 CREATE INDEX IF NOT EXISTS idx_restock_inventory ON restock(inventory_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token);
+CREATE INDEX IF NOT EXISTS idx_email_history_sent_at ON email_history(sent_at);
 `;
 
 export interface Env {
   DB: D1Database;
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
+  // Tripay payment gateway
+  TRIPAY_API_KEY?: string;
+  TRIPAY_MERCHANT_CODE?: string;
+  TRIPAY_MODE?: string; // 'sandbox' or 'production'
+  // QRIS image
+  QRIS_IMAGE_URL?: string;
+  // WhatsApp gateway
+  WA_GATEWAY?: string; // 'fonnte' | 'wablas' | 'cloudapi'
+  FONNTE_TOKEN?: string;
+  WABLAS_TOKEN?: string;
+  WA_CLOUD_TOKEN?: string;
+  WA_CLOUD_PHONE_ID?: string;
+  // Email reports
+  RESEND_API_KEY?: string;
+  REPORT_EMAILS?: string; // comma-separated emails
 }
 
 export async function initDB(db: D1Database) {

@@ -17,9 +17,15 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const supplier = formData.get('supplier') as string || null;
   const batas_stok_min = parseInt(formData.get('batas_stok_min') as string) || 0;
   const stock_awal = parseInt(formData.get('stock_awal') as string) || 0;
-  const harga_beli_awal = parseFloat(formData.get('harga_beli_awal') as string) || 0;
-  const harga_jual_eceran = parseFloat(formData.get('harga_jual_eceran') as string) || 0;
-  const harga_jual_grosir = parseFloat(formData.get('harga_jual_grosir') as string) || 0;
+  // Parse Indonesian number format (strip dots before parsing)
+  const parseIDR = (val: string | null): number => {
+    if (!val) return 0;
+    return parseFloat(val.replace(/\./g, '').replace(/,/g, '.')) || 0;
+  };
+
+  const harga_beli_awal = parseIDR(formData.get('harga_beli_awal') as string);
+  const harga_jual_eceran = parseIDR(formData.get('harga_jual_eceran') as string);
+  const harga_jual_grosir = parseIDR(formData.get('harga_jual_grosir') as string);
   const keterangan = formData.get('keterangan') as string || null;
 
   // Generate category-based SKU: query count of items in same category
@@ -39,7 +45,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
       nilai_aset, status_stok, keterangan)
     .run();
 
-  return new Response(JSON.stringify({ success: true, sku }), {
+  return new Response(JSON.stringify({ success: true, sku, nama_barang }), {
     status: 200,
     headers: { 'Content-Type': 'application/json' },
   });

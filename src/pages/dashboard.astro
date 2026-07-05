@@ -74,139 +74,173 @@ const paymentLabel = (m: string) => m === 'manual' ? 'Tunai' : m === 'qris' ? 'Q
 
 <Layout title="Dashboard" user={user} activePage="/dashboard">
 
-  <!-- Header: Greeting + Clock -->
-  <div class="dash-header">
-    <div class="dash-greeting">
-      <h1>Selamat Datang, {user?.name || 'Admin'} 👋</h1>
-      <p class="date-text" id="currentDate"></p>
-    </div>
-    <div class="clock-widget">
-      <div class="clock-inner">
-        <span class="clock-icon">🕐</span>
-        <div class="clock-body">
+  <!-- Premium Header -->
+  <div class="premium-header">
+    <div class="header-content">
+      <div class="header-left">
+        <div class="brand-badge">
+          <span class="brand-text">KAY ID</span>
+          <span class="brand-sub">TOKO BANGUNAN</span>
+        </div>
+        <div class="greeting-section">
+          <h1>Selamat Datang, {user?.name || 'Admin'}</h1>
+          <p class="date-text" id="currentDate"></p>
+        </div>
+      </div>
+      <div class="header-right">
+        <div class="clock-widget">
           <div class="clock-time" id="liveClock">--:--:--</div>
           <div class="clock-date" id="clockDateShort"></div>
         </div>
+        <div class="quick-actions">
+          <a href="/pos" class="action-btn action-primary">
+            <span class="action-icon">🛒</span>
+            <span>Kasir</span>
+          </a>
+          <a href="/sales" class="action-btn action-secondary">
+            <span class="action-icon">📊</span>
+            <span>Laporan</span>
+          </a>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- Main Finance Cards (2x2 gradient) -->
-  <div class="finance-grid">
-    <div class="fin-card fin-gradient-1">
-      <div class="fin-content">
-        <span class="fin-label">Nilai Aset Gudang</span>
-        <span class="fin-value">{formatCurrency(totalAsset)}</span>
-        <div class="fin-meta">
-          <span>{stats?.total_items || 0} produk</span>
-          <span class="dot">·</span>
-          <span>{stats?.total_stock || 0} unit</span>
+  <!-- Hero Finance Cards -->
+  <div class="hero-grid">
+    <div class="hero-card hero-card-primary">
+      <div class="hero-bg-pattern"></div>
+      <div class="hero-content">
+        <div class="hero-icon-wrap">
+          <span class="hero-icon">💰</span>
+        </div>
+        <div class="hero-data">
+          <span class="hero-label">Nilai Aset Gudang</span>
+          <span class="hero-value">{formatCurrency(totalAsset)}</span>
+          <div class="hero-meta">
+            <span class="meta-chip">{stats?.total_items || 0} produk</span>
+            <span class="meta-chip">{stats?.total_stock || 0} unit</span>
+          </div>
         </div>
       </div>
-      <div class="fin-emoji">💰</div>
     </div>
-    <div class="fin-card fin-gradient-2">
-      <div class="fin-content">
-        <span class="fin-label">Total Profit</span>
-        <span class="fin-value">{formatCurrency(totalProfit)}</span>
-        <div class="fin-meta">
-          <span>Dari {formatCurrency(totalSold)}</span>
-          <span class="dot">·</span>
-          <span>total terjual</span>
+    <div class="hero-card hero-card-success">
+      <div class="hero-bg-pattern"></div>
+      <div class="hero-content">
+        <div class="hero-icon-wrap">
+          <span class="hero-icon">💹</span>
+        </div>
+        <div class="hero-data">
+          <span class="hero-label">Total Profit</span>
+          <span class="hero-value">{formatCurrency(totalProfit)}</span>
+          <div class="hero-meta">
+            <span class="meta-chip">Dari {formatCurrency(totalSold)}</span>
+          </div>
         </div>
       </div>
-      <div class="fin-emoji">💹</div>
     </div>
-    <div class="fin-card fin-gradient-3">
-      <div class="fin-content">
-        <span class="fin-label">Penjualan Hari Ini</span>
-        <span class="fin-value">{formatCurrency(todaySales?.total || 0)}</span>
-        <div class="fin-meta">
-          <span>{todaySales?.cnt || 0} transaksi</span>
-          <span class="dot">·</span>
-          <span>Pengeluaran: {formatCurrency(todayExp)}</span>
+    <div class="hero-card hero-card-warning">
+      <div class="hero-bg-pattern"></div>
+      <div class="hero-content">
+        <div class="hero-icon-wrap">
+          <span class="hero-icon">🧾</span>
+        </div>
+        <div class="hero-data">
+          <span class="hero-label">Penjualan Hari Ini</span>
+          <span class="hero-value">{formatCurrency(todaySales?.total || 0)}</span>
+          <div class="hero-meta">
+            <span class="meta-chip">{todaySales?.cnt || 0} transaksi</span>
+            <span class="meta-chip">Pengeluaran: {formatCurrency(todayExp)}</span>
+          </div>
         </div>
       </div>
-      <div class="fin-emoji">🧾</div>
     </div>
-    <div class="fin-card fin-gradient-4">
-      <div class="fin-content">
-        <span class="fin-label">Penjualan Bulan Ini</span>
-        <span class="fin-value">{formatCurrency(monthSales?.total || 0)}</span>
-        <div class="fin-meta">
-          <span>{monthSales?.cnt || 0} transaksi</span>
-          <span class="dot">·</span>
-          <span>{stats?.total_kategori || 0} kategori</span>
+    <div class="hero-card hero-card-purple">
+      <div class="hero-bg-pattern"></div>
+      <div class="hero-content">
+        <div class="hero-icon-wrap">
+          <span class="hero-icon">📅</span>
+        </div>
+        <div class="hero-data">
+          <span class="hero-label">Penjualan Bulan Ini</span>
+          <span class="hero-value">{formatCurrency(monthSales?.total || 0)}</span>
+          <div class="hero-meta">
+            <span class="meta-chip">{monthSales?.cnt || 0} transaksi</span>
+            <span class="meta-chip">{stats?.total_kategori || 0} kategori</span>
+          </div>
         </div>
       </div>
-      <div class="fin-emoji">📅</div>
     </div>
   </div>
 
-  <!-- Quick Stats Row (card style, matching above) -->
-  <div class="quick-stats">
-    <div class="qs-card">
-      <div class="qs-icon-wrap qs-ico-blue">📦</div>
-      <div class="qs-data">
-        <span class="qs-num">{stats?.total_items || 0}</span>
-        <span class="qs-label">Total Produk</span>
+  <!-- Quick Stats -->
+  <div class="stats-row">
+    <div class="stat-pill">
+      <div class="pill-icon pill-blue">📦</div>
+      <div class="pill-data">
+        <span class="pill-num">{stats?.total_items || 0}</span>
+        <span class="pill-label">Total Produk</span>
       </div>
     </div>
-    <div class="qs-card">
-      <div class="qs-icon-wrap qs-ico-green">📊</div>
-      <div class="qs-data">
-        <span class="qs-num">{stats?.total_stock || 0}</span>
-        <span class="qs-label">Total Stok</span>
+    <div class="stat-pill">
+      <div class="pill-icon pill-green">📊</div>
+      <div class="pill-data">
+        <span class="pill-num">{stats?.total_stock || 0}</span>
+        <span class="pill-label">Total Stok</span>
       </div>
     </div>
-    <div class="qs-card qs-card-warn">
-      <div class="qs-icon-wrap qs-ico-red">⚠️</div>
-      <div class="qs-data">
-        <span class="qs-num">{stats?.low_stock || 0}</span>
-        <span class="qs-label">Stok Menipis</span>
+    <div class="stat-pill stat-pill-alert">
+      <div class="pill-icon pill-red">⚠️</div>
+      <div class="pill-data">
+        <span class="pill-num">{stats?.low_stock || 0}</span>
+        <span class="pill-label">Stok Menipis</span>
       </div>
     </div>
-    <div class="qs-card qs-card-ok">
-      <div class="qs-icon-wrap qs-ico-emerald">💰</div>
-      <div class="qs-data">
-        <span class="qs-num">{formatCurrency(totalProfit)}</span>
-        <span class="qs-label">Profit Kumulatif</span>
+    <div class="stat-pill stat-pill-success">
+      <div class="pill-icon pill-emerald">💰</div>
+      <div class="pill-data">
+        <span class="pill-num">{formatCurrency(totalProfit)}</span>
+        <span class="pill-label">Profit Kumulatif</span>
       </div>
     </div>
   </div>
 
   <!-- Section Title -->
-  <div class="section-divider">
+  <div class="section-header">
     <h2 class="section-title">Ringkasan Data</h2>
+    <div class="section-line"></div>
   </div>
 
-  <!-- Bottom Grid: 3 panels -->
+  <!-- Bottom Grid -->
   <div class="bottom-grid">
     <!-- Penjualan Terbaru -->
-    <div class="dash-card">
-      <div class="card-header">
-        <h3>📋 Penjualan Terbaru</h3>
-        <a href="/reports" class="btn-link">Lihat Semua →</a>
+    <div class="premium-card">
+      <div class="premium-card-header">
+        <div class="card-title-wrap">
+          <span class="card-title-icon">📋</span>
+          <h3>Penjualan Terbaru</h3>
+        </div>
+        <a href="/sales" class="card-action-btn">Lihat Semua</a>
       </div>
-      <div class="card-table-head">
-        <span>Invoice</span><span>Tanggal</span><span class="th-right">Total</span><span class="th-right">Status</span>
-      </div>
-      <div class="card-body">
+      <div class="premium-card-body">
         {recentSales.map((s: any, i: number) => (
-          <div class={`sale-row ${i % 2 === 1 ? 'row-alt' : ''}`}>
-            <div class="sale-info">
-              <strong>{s.invoice_no}</strong>
-              <span class="sale-date">{s.tanggal}</span>
+          <div class="premium-row">
+            <div class="premium-row-left">
+              <div class="row-avatar">{s.invoice_no.substring(4, 6)}</div>
+              <div class="row-info">
+                <strong>{s.invoice_no}</strong>
+                <span class="row-sub">{s.tanggal}</span>
+              </div>
             </div>
-            <div class="sale-right">
-              <span class="sale-total">{formatCurrency(s.total)}</span>
-              <span class="badge badge-success">{paymentLabel(s.payment_method)}</span>
+            <div class="premium-row-right">
+              <span class="row-amount">{formatCurrency(s.total)}</span>
+              <span class={`row-badge row-badge-${s.payment_method}`}>{paymentLabel(s.payment_method)}</span>
             </div>
           </div>
         ))}
         {(!recentSales || recentSales.length === 0) && (
-          <div class="empty-state">
-            <span class="empty-icon">🧾</span>
+          <div class="premium-empty">
+            <span class="empty-icon-lg">🧾</span>
             <span>Belum ada penjualan</span>
           </div>
         )}
@@ -214,33 +248,33 @@ const paymentLabel = (m: string) => m === 'manual' ? 'Tunai' : m === 'qris' ? 'Q
     </div>
 
     <!-- Produk Terlaris -->
-    <div class="dash-card">
-      <div class="card-header">
-        <h3>🏆 Produk Terlaris</h3>
-        <a href="/inventory" class="btn-link">Kelola →</a>
+    <div class="premium-card">
+      <div class="premium-card-header">
+        <div class="card-title-wrap">
+          <span class="card-title-icon">🏆</span>
+          <h3>Produk Terlaris</h3>
+        </div>
+        <a href="/inventory" class="card-action-btn">Kelola</a>
       </div>
-      <div class="card-table-head">
-        <span>Produk</span><span>SKU</span><span class="th-right">Terjual</span><span class="th-right">Revenue</span>
-      </div>
-      <div class="card-body">
+      <div class="premium-card-body">
         {topProducts.map((p: any, i: number) => (
-          <div class={`sale-row ${i % 2 === 1 ? 'row-alt' : ''}`}>
-            <div class="sale-info">
-              <div class="rank-wrap"><span class="rank-badge">#{i + 1}</span></div>
-              <div>
+          <div class="premium-row">
+            <div class="premium-row-left">
+              <div class={`rank-circle rank-${i + 1}`}>#{i + 1}</div>
+              <div class="row-info">
                 <strong>{p.nama_barang}</strong>
-                <span class="sale-date">{p.sku}</span>
+                <span class="row-sub">{p.sku}</span>
               </div>
             </div>
-            <div class="sale-right">
-              <span class="sale-total">{p.qty_sold} unit</span>
-              <span class="sale-sub">{formatCurrency(p.revenue)}</span>
+            <div class="premium-row-right">
+              <span class="row-amount">{p.qty_sold} unit</span>
+              <span class="row-sub">{formatCurrency(p.revenue)}</span>
             </div>
           </div>
         ))}
         {(!topProducts || topProducts.length === 0) && (
-          <div class="empty-state">
-            <span class="empty-icon">📦</span>
+          <div class="premium-empty">
+            <span class="empty-icon-lg">📦</span>
             <span>Belum ada data penjualan</span>
           </div>
         )}
@@ -248,33 +282,37 @@ const paymentLabel = (m: string) => m === 'manual' ? 'Tunai' : m === 'qris' ? 'Q
     </div>
 
     <!-- Stok Menipis -->
-    <div class="dash-card">
-      <div class="card-header">
-        <h3>⚠️ Stok Menipis ({stats?.low_stock || 0})</h3>
-        <a href="/inventory" class="btn-link">Kelola →</a>
+    <div class="premium-card">
+      <div class="premium-card-header">
+        <div class="card-title-wrap">
+          <span class="card-title-icon">⚠️</span>
+          <h3>Stok Menipis</h3>
+          <span class="count-badge">{stats?.low_stock || 0}</span>
+        </div>
+        <a href="/inventory" class="card-action-btn">Kelola</a>
       </div>
-      <div class="card-table-head">
-        <span>Nama Barang</span><span>SKU</span><span class="th-right">Stok</span><span class="th-right">Min</span>
-      </div>
-      <div class="card-body">
+      <div class="premium-card-body">
         {stockView.map((item: StockItem, i: number) => (
-          <div class={`stock-row ${i % 2 === 1 ? 'row-alt' : ''}`}>
-            <div class="stock-info">
-              <strong>{item.nama_barang}</strong>
-              <span class="sale-date">{item.sku} · {item.satuan}</span>
-            </div>
-            <div class="stock-right">
-              <div class="stock-bar-wrap">
-                <div class="stock-bar" style={`width:${item.pct}%;background:${item.barColor}`}></div>
+          <div class="premium-row">
+            <div class="premium-row-left">
+              <div class="row-info">
+                <strong>{item.nama_barang}</strong>
+                <span class="row-sub">{item.sku} · {item.satuan}</span>
               </div>
-              <span class="stock-num" style={`color:${item.numColor}`}>{item.stock_saat_ini}</span>
-              <span class="stock-min">/ {item.batas_stok_min}</span>
+            </div>
+            <div class="premium-row-right">
+              <div class="stock-progress">
+                <div class="stock-bar-bg">
+                  <div class="stock-bar-fill" style={`width:${item.pct}%;background:${item.barColor}`}></div>
+                </div>
+              </div>
+              <span class="stock-value" style={`color:${item.numColor}`}>{item.stock_saat_ini}<span class="stock-min">/{item.batas_stok_min}</span></span>
             </div>
           </div>
         ))}
         {(!stockView || stockView.length === 0) && (
-          <div class="empty-state">
-            <span class="empty-icon">✅</span>
+          <div class="premium-empty">
+            <span class="empty-icon-lg">✅</span>
             <span>Semua stok aman</span>
           </div>
         )}
@@ -302,303 +340,483 @@ const paymentLabel = (m: string) => m === 'manual' ? 'Tunai' : m === 'qris' ? 'Q
   </script>
 
   <style>
-    /* === HEADER === */
-    .dash-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 1.75rem;
-      padding-bottom: 1rem;
-      border-bottom: 1px solid var(--gray-100);
-    }
-    .dash-greeting h1 {
-      font-size: 1.5rem;
-      font-weight: 700;
-      margin-bottom: 0.35rem;
-      color: var(--gray-900);
-    }
-    .date-text {
-      color: var(--gray-500);
-      font-size: 0.85rem;
-      margin-top: 0.15rem;
-    }
-
-    /* === CLOCK WIDGET === */
-    .clock-widget {
-      background: white;
-      border: 1px solid var(--gray-200);
-      border-radius: 1rem;
-      padding: 0.65rem 1.1rem;
-      box-shadow: 0 2px 12px rgba(0,0,0,0.06);
-    }
-    .clock-inner {
-      display: flex;
-      align-items: center;
-      gap: 0.65rem;
-    }
-    .clock-icon { font-size: 1.6rem; }
-    .clock-body { display: flex; flex-direction: column; }
-    .clock-time {
-      font-size: 1.5rem;
-      font-weight: 700;
-      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-      color: var(--primary);
-      letter-spacing: 0.04em;
-      line-height: 1.1;
-    }
-    .clock-date {
-      font-size: 0.68rem;
-      color: var(--gray-500);
-      margin-top: 0.1rem;
-    }
-
-    /* === FINANCE CARDS (2x2 gradient) === */
-    .finance-grid {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 1rem;
-      margin-bottom: 1rem;
-    }
-    .fin-card {
-      border-radius: 1rem;
-      padding: 1.5rem;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      color: white;
-      transition: transform 0.2s, box-shadow 0.2s;
-      cursor: default;
+    /* === PREMIUM HEADER === */
+    .premium-header {
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+      border-radius: 1.25rem;
+      padding: 1.75rem 2rem;
+      margin-bottom: 1.5rem;
+      box-shadow: 0 10px 40px rgba(15, 23, 42, 0.15);
       position: relative;
       overflow: hidden;
-      box-shadow: 0 6px 20px rgba(0,0,0,0.12);
     }
-    .fin-card::before {
+    .premium-header::before {
       content: '';
       position: absolute;
-      top: -40%;
-      right: -15%;
-      width: 180px;
-      height: 180px;
+      top: -50%;
+      right: -10%;
+      width: 400px;
+      height: 400px;
       border-radius: 50%;
+      background: radial-gradient(circle, rgba(59, 130, 246, 0.15) 0%, transparent 70%);
+    }
+    .header-content {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: relative;
+      z-index: 1;
+    }
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 1.25rem;
+    }
+    .brand-badge {
+      background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+      padding: 0.75rem 1rem;
+      border-radius: 0.85rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3);
+    }
+    .brand-text {
+      font-size: 1.1rem;
+      font-weight: 800;
+      color: white;
+      letter-spacing: 1px;
+    }
+    .brand-sub {
+      font-size: 0.55rem;
+      color: rgba(255,255,255,0.8);
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+    .greeting-section h1 {
+      font-size: 1.4rem;
+      font-weight: 700;
+      color: white;
+      margin-bottom: 0.25rem;
+    }
+    .date-text {
+      color: rgba(255,255,255,0.6);
+      font-size: 0.8rem;
+    }
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+    .clock-widget {
+      background: rgba(255,255,255,0.08);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 0.85rem;
+      padding: 0.75rem 1.1rem;
+      text-align: center;
+    }
+    .clock-time {
+      font-size: 1.4rem;
+      font-weight: 700;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      color: #60a5fa;
+      letter-spacing: 0.05em;
+    }
+    .clock-date {
+      font-size: 0.65rem;
+      color: rgba(255,255,255,0.5);
+      margin-top: 0.1rem;
+    }
+    .quick-actions {
+      display: flex;
+      gap: 0.5rem;
+    }
+    .action-btn {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.6rem 1rem;
+      border-radius: 0.7rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+    .action-primary {
+      background: linear-gradient(135deg, #3b82f6, #2563eb);
+      color: white;
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+    }
+    .action-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4);
+    }
+    .action-secondary {
       background: rgba(255,255,255,0.1);
+      color: white;
+      border: 1px solid rgba(255,255,255,0.15);
     }
-    .fin-card::after {
-      content: '';
-      position: absolute;
-      bottom: -30%;
-      left: -10%;
-      width: 120px;
-      height: 120px;
-      border-radius: 50%;
-      background: rgba(255,255,255,0.06);
+    .action-secondary:hover {
+      background: rgba(255,255,255,0.15);
     }
-    .fin-card:hover {
-      transform: translateY(-4px);
-      box-shadow: 0 14px 36px rgba(0,0,0,0.18);
-    }
-    .fin-gradient-1 { background: linear-gradient(135deg, #1a56db 0%, #3b82f6 100%); }
-    .fin-gradient-2 { background: linear-gradient(135deg, #059669 0%, #10b981 100%); }
-    .fin-gradient-3 { background: linear-gradient(135deg, #d97706 0%, #f59e0b 100%); }
-    .fin-gradient-4 { background: linear-gradient(135deg, #7c3aed 0%, #8b5cf6 100%); }
-    .fin-content { display: flex; flex-direction: column; gap: 0.25rem; z-index: 1; }
-    .fin-label { font-size: 0.8rem; opacity: 0.85; font-weight: 500; }
-    .fin-value { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; }
-    .fin-meta {
-      font-size: 0.72rem; opacity: 0.75;
-      display: flex; gap: 0.35rem; align-items: center;
-      margin-top: 0.25rem;
-    }
-    .fin-meta .dot { opacity: 0.5; }
-    .fin-emoji { font-size: 2.8rem; z-index: 1; opacity: 0.85; }
+    .action-icon { font-size: 1rem; }
 
-    /* === QUICK STATS (card style, consistent) === */
-    .quick-stats {
+    /* === HERO CARDS === */
+    .hero-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 1.25rem;
+      margin-bottom: 1.25rem;
+    }
+    .hero-card {
+      border-radius: 1.25rem;
+      padding: 1.75rem;
+      position: relative;
+      overflow: hidden;
+      transition: transform 0.25s, box-shadow 0.25s;
+      cursor: default;
+    }
+    .hero-card:hover {
+      transform: translateY(-4px);
+    }
+    .hero-card-primary {
+      background: linear-gradient(135deg, #4338ca 0%, #6366f1 100%);
+      box-shadow: 0 10px 30px rgba(67, 56, 202, 0.25);
+    }
+    .hero-card-success {
+      background: linear-gradient(135deg, #047857 0%, #10b981 100%);
+      box-shadow: 0 10px 30px rgba(4, 120, 87, 0.25);
+    }
+    .hero-card-warning {
+      background: linear-gradient(135deg, #b45309 0%, #f59e0b 100%);
+      box-shadow: 0 10px 30px rgba(180, 83, 9, 0.25);
+    }
+    .hero-card-purple {
+      background: linear-gradient(135deg, #6d28d9 0%, #8b5cf6 100%);
+      box-shadow: 0 10px 30px rgba(109, 40, 217, 0.25);
+    }
+    .hero-bg-pattern {
+      position: absolute;
+      top: -30%;
+      right: -10%;
+      width: 200px;
+      height: 200px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.08);
+    }
+    .hero-content {
+      display: flex;
+      align-items: center;
+      gap: 1.25rem;
+      position: relative;
+      z-index: 1;
+    }
+    .hero-icon-wrap {
+      width: 56px;
+      height: 56px;
+      border-radius: 1rem;
+      background: rgba(255,255,255,0.15);
+      backdrop-filter: blur(10px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .hero-icon { font-size: 1.75rem; }
+    .hero-data {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+    }
+    .hero-label {
+      font-size: 0.78rem;
+      color: rgba(255,255,255,0.8);
+      font-weight: 500;
+    }
+    .hero-value {
+      font-size: 1.6rem;
+      font-weight: 800;
+      color: white;
+      letter-spacing: -0.02em;
+      line-height: 1.2;
+    }
+    .hero-meta {
+      display: flex;
+      gap: 0.4rem;
+      margin-top: 0.3rem;
+      flex-wrap: wrap;
+    }
+    .meta-chip {
+      font-size: 0.65rem;
+      color: rgba(255,255,255,0.7);
+      background: rgba(255,255,255,0.12);
+      padding: 0.2rem 0.5rem;
+      border-radius: 999px;
+    }
+
+    /* === STATS ROW === */
+    .stats-row {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
       gap: 1rem;
       margin-bottom: 1.5rem;
     }
-    .qs-card {
+    .stat-pill {
       background: white;
       border-radius: 1rem;
-      padding: 1.1rem 1.2rem;
+      padding: 1rem 1.15rem;
       display: flex;
       align-items: center;
       gap: 0.85rem;
-      box-shadow: 0 4px 14px rgba(0,0,0,0.06);
-      border: 1px solid var(--gray-200);
-      transition: transform 0.15s, box-shadow 0.15s;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.04);
+      border: 1px solid var(--gray-100);
+      transition: all 0.2s;
     }
-    .qs-card:hover {
+    .stat-pill:hover {
       transform: translateY(-2px);
-      box-shadow: 0 8px 22px rgba(0,0,0,0.1);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.08);
     }
-    .qs-card-warn { border-left: 4px solid var(--danger); }
-    .qs-card-ok { border-left: 4px solid var(--success); }
-    .qs-icon-wrap {
-      width: 46px;
-      height: 46px;
+    .stat-pill-alert { border-left: 3px solid var(--danger); }
+    .stat-pill-success { border-left: 3px solid var(--success); }
+    .pill-icon {
+      width: 42px;
+      height: 42px;
       border-radius: 0.7rem;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 1.3rem;
+      font-size: 1.2rem;
       flex-shrink: 0;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
     }
-    .qs-ico-blue { background: linear-gradient(135deg, #dbeafe, #bfdbfe); }
-    .qs-ico-green { background: linear-gradient(135deg, #d1fae5, #a7f3d0); }
-    .qs-ico-red { background: linear-gradient(135deg, #fee2e2, #fecaca); }
-    .qs-ico-emerald { background: linear-gradient(135deg, #a7f3d0, #6ee7b7); }
-    .qs-data { display: flex; flex-direction: column; }
-    .qs-num {
-      font-size: 1.15rem;
+    .pill-blue { background: linear-gradient(135deg, #e0e7ff, #c7d2fe); }
+    .pill-green { background: linear-gradient(135deg, #d1fae5, #a7f3d0); }
+    .pill-red { background: linear-gradient(135deg, #fee2e2, #fecaca); }
+    .pill-emerald { background: linear-gradient(135deg, #a7f3d0, #6ee7b7); }
+    .pill-data { display: flex; flex-direction: column; }
+    .pill-num {
+      font-size: 1.1rem;
       font-weight: 800;
       color: var(--gray-900);
       line-height: 1.2;
     }
-    .qs-label { font-size: 0.72rem; color: var(--gray-500); font-weight: 500; }
-    .qs-card-warn .qs-num { color: var(--danger); }
-    .qs-card-ok .qs-num { color: var(--success); font-size: 1rem; }
+    .pill-label { font-size: 0.7rem; color: var(--gray-500); font-weight: 500; }
+    .stat-pill-alert .pill-num { color: var(--danger); }
+    .stat-pill-success .pill-num { color: var(--success); font-size: 0.95rem; }
 
-    /* === SECTION DIVIDER === */
-    .section-divider {
-      margin-bottom: 1rem;
-      padding-bottom: 0.5rem;
+    /* === SECTION HEADER === */
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 1.25rem;
     }
     .section-title {
-      font-size: 1rem;
-      font-weight: 600;
-      color: var(--gray-700);
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: var(--gray-800);
+      white-space: nowrap;
+    }
+    .section-line {
+      flex: 1;
+      height: 1px;
+      background: linear-gradient(90deg, var(--gray-200), transparent);
     }
 
-    /* === BOTTOM GRID (3 panels) === */
+    /* === PREMIUM CARDS === */
     .bottom-grid {
       display: grid;
       grid-template-columns: 1fr 1fr 1fr;
-      gap: 1rem;
+      gap: 1.25rem;
     }
-    .dash-card {
+    .premium-card {
       background: white;
-      border-radius: 1rem;
-      box-shadow: 0 4px 14px rgba(0,0,0,0.06);
-      border: 1px solid var(--gray-200);
+      border-radius: 1.15rem;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+      border: 1px solid var(--gray-100);
       overflow: hidden;
+      transition: box-shadow 0.2s;
     }
-    .card-header {
+    .premium-card:hover {
+      box-shadow: 0 8px 32px rgba(0,0,0,0.08);
+    }
+    .premium-card-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 0.9rem 1.25rem;
+      padding: 1.1rem 1.35rem;
+      border-bottom: 1px solid var(--gray-100);
     }
-    .card-header h3 { font-size: 0.95rem; font-weight: 600; }
-    .btn-link {
-      font-size: 0.75rem;
+    .card-title-wrap {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+    .card-title-icon { font-size: 1.2rem; }
+    .card-title-wrap h3 {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: var(--gray-800);
+    }
+    .count-badge {
+      background: var(--danger);
+      color: white;
+      font-size: 0.65rem;
+      font-weight: 700;
+      padding: 0.15rem 0.45rem;
+      border-radius: 999px;
+    }
+    .card-action-btn {
+      font-size: 0.72rem;
       color: var(--primary);
       text-decoration: none;
       font-weight: 600;
-      padding: 0.3rem 0.6rem;
-      border-radius: 0.4rem;
+      padding: 0.35rem 0.7rem;
+      border-radius: 0.5rem;
       background: var(--primary-light);
-      transition: background 0.15s;
+      transition: all 0.15s;
     }
-    .btn-link:hover { background: #dbeafe; }
-
-    /* === TABLE HEADERS (inside cards) === */
-    .card-table-head {
-      display: grid;
-      grid-template-columns: 1fr 1fr 0.6fr 0.6fr;
-      padding: 0.5rem 1.25rem;
-      font-size: 0.7rem;
-      font-weight: 600;
-      color: var(--gray-500);
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      background: var(--gray-50);
-      border-top: 1px solid var(--gray-100);
-      border-bottom: 1px solid var(--gray-100);
+    .card-action-btn:hover {
+      background: #c7d2fe;
+      color: var(--primary-dark);
     }
-    .th-right { text-align: right; }
-    .card-body { padding: 0.25rem 0; }
+    .premium-card-body {
+      padding: 0.5rem 0;
+    }
 
-    /* === ROWS === */
-    .sale-row {
+    /* === PREMIUM ROWS === */
+    .premium-row {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 0.65rem 1.25rem;
+      padding: 0.75rem 1.35rem;
       transition: background 0.1s;
     }
-    .sale-row:hover { background: #f8fafc; }
-    .row-alt { background: var(--gray-50); }
-    .row-alt:hover { background: #f1f5f9; }
-    .sale-info { display: flex; align-items: center; gap: 0.5rem; }
-    .sale-info strong { font-size: 0.83rem; }
-    .sale-date { font-size: 0.7rem; color: var(--gray-500); }
-    .sale-right { display: flex; flex-direction: column; align-items: flex-end; gap: 0.15rem; }
-    .sale-total { font-size: 0.88rem; font-weight: 700; }
-    .sale-sub { font-size: 0.7rem; color: var(--gray-500); }
-
-    .rank-wrap { flex-shrink: 0; }
-    .rank-badge {
-      display: inline-flex;
+    .premium-row:hover { background: #f8fafc; }
+    .premium-row-left {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    .row-avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 0.6rem;
+      background: linear-gradient(135deg, var(--primary-light), #c7d2fe);
+      display: flex;
       align-items: center;
       justify-content: center;
-      width: 26px;
-      height: 26px;
-      border-radius: 50%;
-      background: linear-gradient(135deg, var(--primary-light), #dbeafe);
-      color: var(--primary);
-      font-size: 0.7rem;
+      font-size: 0.75rem;
       font-weight: 700;
-      box-shadow: 0 1px 4px rgba(26,86,219,0.2);
+      color: var(--primary);
+      flex-shrink: 0;
     }
-
-    /* === STOCK ROWS === */
-    .stock-row {
+    .row-info {
       display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 0.65rem 1.25rem;
-      transition: background 0.1s;
+      flex-direction: column;
+      gap: 0.1rem;
     }
-    .stock-row:hover { background: #f8fafc; }
-    .stock-info { display: flex; flex-direction: column; gap: 0.1rem; }
-    .stock-info strong { font-size: 0.83rem; }
-    .stock-right { display: flex; align-items: center; gap: 0.5rem; }
-    .stock-bar-wrap {
-      width: 55px;
+    .row-info strong {
+      font-size: 0.83rem;
+      color: var(--gray-800);
+    }
+    .row-sub {
+      font-size: 0.7rem;
+      color: var(--gray-500);
+    }
+    .premium-row-right {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 0.2rem;
+    }
+    .row-amount {
+      font-size: 0.88rem;
+      font-weight: 700;
+      color: var(--gray-900);
+    }
+    .row-badge {
+      font-size: 0.65rem;
+      font-weight: 600;
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+    }
+    .row-badge-manual { background: #d1fae5; color: #065f46; }
+    .row-badge-qris { background: #e0e7ff; color: #4338ca; }
+    .row-badge-transfer { background: #fef3c7; color: #92400e; }
+
+    /* === RANK CIRCLE === */
+    .rank-circle {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.7rem;
+      font-weight: 800;
+      flex-shrink: 0;
+    }
+    .rank-1 { background: linear-gradient(135deg, #fbbf24, #f59e0b); color: white; box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3); }
+    .rank-2 { background: linear-gradient(135deg, #9ca3af, #6b7280); color: white; }
+    .rank-3 { background: linear-gradient(135deg, #d97706, #b45309); color: white; }
+    .rank-4, .rank-5 { background: var(--gray-100); color: var(--gray-600); }
+
+    /* === STOCK PROGRESS === */
+    .stock-progress { width: 60px; }
+    .stock-bar-bg {
+      width: 100%;
       height: 6px;
       background: var(--gray-200);
       border-radius: 3px;
       overflow: hidden;
     }
-    .stock-bar { height: 100%; border-radius: 3px; transition: width 0.3s; }
-    .stock-num { font-size: 0.88rem; font-weight: 700; min-width: 22px; text-align: right; }
-    .stock-min { font-size: 0.68rem; color: var(--gray-400); }
+    .stock-bar-fill {
+      height: 100%;
+      border-radius: 3px;
+      transition: width 0.3s;
+    }
+    .stock-value {
+      font-size: 0.8rem;
+      font-weight: 700;
+      min-width: 30px;
+      text-align: right;
+    }
+    .stock-min {
+      font-size: 0.65rem;
+      color: var(--gray-400);
+      font-weight: 500;
+    }
 
     /* === EMPTY STATE === */
-    .empty-state {
+    .premium-empty {
       display: flex;
       flex-direction: column;
       align-items: center;
       gap: 0.5rem;
-      text-align: center;
       padding: 2.5rem 1rem;
-      color: var(--gray-500);
+      color: var(--gray-400);
       font-size: 0.85rem;
     }
-    .empty-icon { font-size: 2rem; opacity: 0.6; }
+    .empty-icon-lg { font-size: 2.5rem; opacity: 0.5; }
 
     /* === RESPONSIVE === */
-    @media (max-width: 1024px) {
+    @media (max-width: 1200px) {
       .bottom-grid { grid-template-columns: 1fr 1fr; }
     }
+    @media (max-width: 1024px) {
+      .hero-grid { grid-template-columns: 1fr; }
+      .stats-row { grid-template-columns: repeat(2, 1fr); }
+    }
     @media (max-width: 768px) {
-      .finance-grid { grid-template-columns: 1fr; }
-      .quick-stats { grid-template-columns: repeat(2, 1fr); }
+      .premium-header { padding: 1.25rem; }
+      .header-content { flex-direction: column; gap: 1rem; align-items: flex-start; }
+      .header-left { flex-direction: column; align-items: flex-start; }
+      .header-right { flex-wrap: wrap; }
+      .stats-row { grid-template-columns: 1fr; }
       .bottom-grid { grid-template-columns: 1fr; }
-      .dash-header { flex-direction: column; gap: 0.75rem; align-items: flex-start; }
+      .quick-actions { width: 100%; }
+      .action-btn { flex: 1; justify-content: center; }
     }
   </style>
 </Layout>

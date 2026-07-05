@@ -12,6 +12,14 @@ export const GET: APIRoute = async ({ request, params, locals }) => {
 
   const items = (await db.prepare('SELECT * FROM sales_items WHERE sale_id = ?').bind(sale.id).all()).results as any[];
 
+  // Calculate totals
+  let totalCOGS = 0;
+  for (const item of items) {
+    totalCOGS += (item.harga_beli || 0) * item.qty;
+  }
+  const totalProfit = sale.total - totalCOGS;
+  const profitMargin = sale.total > 0 ? ((totalProfit / sale.total) * 100).toFixed(1) : '0';
+
   const html = `<!DOCTYPE html>
 <html><head><meta charset="UTF-8"><title>Invoice ${invoiceNo}</title>
 <style>
@@ -35,12 +43,58 @@ export const GET: APIRoute = async ({ request, params, locals }) => {
   .pay-manual { background: #d1fae5; color: #065f46; }
   .pay-qris { background: #dbeafe; color: #1e40af; }
   .pay-transfer { background: #fef3c7; color: #92400e; }
+  .stamp-container { text-align: center; margin: 40px 0 20px; }
+  .stamp {
+    display: inline-block;
+    border: 5px double #dc2626;
+    border-radius: 50%;
+    width: 160px;
+    height: 160px;
+    position: relative;
+    transform: rotate(-12deg);
+    opacity: 0.85;
+    box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.3), inset 0 0 0 2px rgba(220, 38, 38, 0.2);
+  }
+  .stamp::before {
+    content: '';
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    right: 10px;
+    bottom: 10px;
+    border: 2px solid #dc2626;
+    border-radius: 50%;
+    opacity: 0.6;
+  }
+  .stamp-text {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -60%);
+    font-size: 32px;
+    font-weight: 900;
+    color: #dc2626;
+    letter-spacing: 4px;
+    font-family: 'Courier New', monospace;
+    text-shadow: 1px 1px 2px rgba(220, 38, 38, 0.3);
+  }
+  .stamp-date {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, 40%);
+    font-size: 11px;
+    color: #dc2626;
+    font-weight: 700;
+    letter-spacing: 1px;
+    font-family: Arial, sans-serif;
+  }
   @media print { body { padding: 20px; } }
 </style></head><body>
   <div class="header">
     <div>
-      <div class="brand">Kay<span>.id</span></div>
-      <div style="font-size:13px;color:#666;margin-top:5px;">Toko Bangunan</div>
+      <div class="brand" style="font-size:24px;letter-spacing:1px;">KAY ID</div>
+      <div style="font-size:14px;color:#333;font-weight:600;margin-top:3px;">TOKO BANGUNAN</div>
     </div>
     <div class="invoice-info">
       <h2>INVOICE</h2>
@@ -51,7 +105,7 @@ export const GET: APIRoute = async ({ request, params, locals }) => {
   </div>
   ${sale.customer_name ? `<div class="customer"><strong>Pelanggan:</strong> ${sale.customer_name}</div>` : ''}
   <table>
-    <thead><tr><th>No</th><th>SKU</th><th>Nama Barang</th><th>Qty</th><th>Harga</th><th>Subtotal</th></tr></thead>
+    <thead><tr><th>No</th><th>SKU</th><th>Nama Barang</th><th>Qty</th><th>Harga</th><th>Modal</th><th>Subtotal</th></tr></thead>
     <tbody>
       ${items.map((item: any, i: number) => `
         <tr>
@@ -60,6 +114,7 @@ export const GET: APIRoute = async ({ request, params, locals }) => {
           <td>${item.nama_barang}</td>
           <td>${item.qty}</td>
           <td>${formatCurrency(item.harga_satuan)}</td>
+          <td style="color:#666;">${formatCurrency(item.harga_beli || 0)}</td>
           <td>${formatCurrency(item.subtotal)}</td>
         </tr>
       `).join('')}
@@ -69,6 +124,15 @@ export const GET: APIRoute = async ({ request, params, locals }) => {
     <div class="row"><span>Subtotal</span><span>${formatCurrency(sale.subtotal)}</span></div>
     ${sale.discount > 0 ? `<div class="row"><span>Diskon</span><span>-${formatCurrency(sale.discount)}</span></div>` : ''}
     <div class="row grand"><span>TOTAL</span><span>${formatCurrency(sale.total)}</span></div>
+    <div class="row" style="margin-top:10px;border-top:1px solid #eee;padding-top:8px;">
+      <span>Modal (COGS):</span><span style="color:#666;">${formatCurrency(totalCOGS)}</span>
+    </div>
+    <div class="row" style="font-weight:600;">
+      <span>Keuntungan:</span><span style="color:#059669;">${formatCurrency(totalProfit)}</span>
+    </div>
+    <div class="row" style="font-size:12px;color:#666;">
+      <span>Margin:</span><span>${profitMargin}%</span>
+    </div>
     <div class="row" style="margin-top:10px;">
       <span>Pembayaran:</span>
       <span class="payment-badge pay-${sale.payment_method}">
@@ -77,8 +141,14 @@ export const GET: APIRoute = async ({ request, params, locals }) => {
     </div>
   </div>
   ${sale.notes ? `<div style="margin-top:20px;font-size:13px;"><strong>Catatan:</strong> ${sale.notes}</div>` : ''}
+  <div class="stamp-container">
+    <div class="stamp">
+      <div class="stamp-text">LUNAS</div>
+      <div class="stamp-date">${formatDate(sale.tanggal)}</div>
+    </div>
+  </div>
   <div class="footer">
-    <p>Terima kasih atas pembelian Anda di Kay.id Toko Bangunan</p>
+    <p>Terima kasih atas pembelian Anda di KAY ID TOKO BANGUNAN</p>
     <p>Invoice ini dicetak secara otomatis pada ${new Date().toLocaleString('id-ID')}</p>
   </div>
   <script>window.onload = () => window.print();</script>

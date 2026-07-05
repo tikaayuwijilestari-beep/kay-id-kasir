@@ -70,9 +70,33 @@ const itemsView: ItemView[] = items.map((item: any) => {
   };
 });
 
+// Create JSON string for client-side edit functionality
+const itemsJSON = JSON.stringify(items.map((item: any) => ({
+  id: item.id,
+  sku: item.sku,
+  nama_barang: item.nama_barang,
+  merk: item.merk || '',
+  kategori: item.kategori || '',
+  satuan: item.satuan,
+  lokasi_rak: item.lokasi_rak || '',
+  supplier: item.supplier || '',
+  stock_saat_ini: item.stock_saat_ini,
+  batas_stok_min: item.batas_stok_min,
+  harga_beli_awal: item.harga_beli_awal,
+  harga_jual_eceran: item.harga_jual_eceran,
+  harga_jual_grosir: item.harga_jual_grosir,
+  keterangan: item.keterangan || ''
+})));
+
 // Build PDF export URL with current filters
 let pdfUrl = '/api/reports/inventory-pdf';
 if (statusFilter) pdfUrl += `?type=${statusFilter}`;
+
+// Precompute chip filter URLs
+const baseQs = `q=${encodeURIComponent(search)}&kategori=${encodeURIComponent(kategori)}`;
+const chipAllUrl = `/inventory?${baseQs}`;
+const chipSafeUrl = `/inventory?${baseQs}&status=safe`;
+const chipLowUrl = `/inventory?${baseQs}&status=low`;
 ---
 
 <Layout title="Inventory" user={user} activePage="/inventory">
@@ -84,7 +108,7 @@ if (statusFilter) pdfUrl += `?type=${statusFilter}`;
     <div class="header-actions">
       <a href="/scan" class="btn btn-outline">📱 Scan QR</a>
       <a href={pdfUrl} class="btn btn-outline" target="_blank">📄 Export PDF</a>
-      <button class="btn btn-primary btn-lg" onclick="document.getElementById('addModal').classList.remove('hidden')">
+      <button class="btn btn-primary btn-lg" onclick="openAddModal()">
         <span class="btn-icon">+</span> Tambah Barang
       </button>
     </div>
@@ -135,96 +159,28 @@ if (statusFilter) pdfUrl += `?type=${statusFilter}`;
           <option value={c.kategori} selected={kategori === c.kategori}>{c.kategori}</option>
         ))}
       </select>
+      {statusFilter && <input type="hidden" name="status" value={statusFilter} />}
       <div class="status-chips">
-        <a href="/inventory?q={search}&kategori={kategori}" class={`chip ${!statusFilter ? 'chip-active' : ''}`}>Semua</a>
-        <a href="/inventory?q={search}&kategori={kategori}&status=safe" class={`chip ${statusFilter === 'safe' ? 'chip-active chip-safe' : ''}`}>✅ Aman</a>
-        <a href="/inventory?q={search}&kategori={kategori}&status=low" class={`chip ${statusFilter === 'low' ? 'chip-active chip-danger' : ''}`}>⚠️ Menipis</a>
+        <a href={chipAllUrl} class={`chip ${!statusFilter ? 'chip-active' : ''}`}>Semua</a>
+        <a href={chipSafeUrl} class={`chip ${statusFilter === 'safe' ? 'chip-active chip-safe' : ''}`}>✅ Aman</a>
+        <a href={chipLowUrl} class={`chip ${statusFilter === 'low' ? 'chip-active chip-danger' : ''}`}>⚠️ Menipis</a>
       </div>
       <button type="submit" class="btn btn-primary">Cari</button>
       <a href="/inventory" class="btn btn-outline">Reset</a>
     </form>
   </div>
 
-  <!-- View Toggle & Results Count -->
+  <!-- Results Count -->
   <div class="toolbar">
     <div class="results-info">
       Menampilkan <strong>{itemsView.length}</strong> dari <strong>{summary?.total || 0}</strong> produk
       {kategori && <span class="active-filter">Kategori: {kategori}</span>}
       {search && <span class="active-filter">Pencarian: "{search}"</span>}
     </div>
-    <div class="view-toggle">
-      <button class="view-btn active" data-view="card" onclick="switchView('card')">🃏 Card</button>
-      <button class="view-btn" data-view="table" onclick="switchView('table')">📋 Tabel</button>
-    </div>
   </div>
-
-  <!-- Card View -->
-  <div class="items-grid" id="cardView">
-    {itemsView.map((item: ItemView) => (
-        <div class={item.cardClass}>
-          <div class="item-top">
-            <div class="item-sku-row">
-              <span class="item-sku">{item.sku}</span>
-              <button class="qr-btn" onclick="showQR('{item.id}', '{item.sku}')" title="Lihat QR Code">📱</button>
-            </div>
-            <span class={item.statusClass}>{item.statusText}</span>
-          </div>
-          <h4 class="item-name">{item.nama_barang}</h4>
-          {item.merk && <div class="item-merk">{item.merk}</div>}
-          <div class="item-tags">
-            {item.kategori && <span class="item-tag">{item.kategori}</span>}
-            <span class="item-tag">{item.satuan}</span>
-            {item.lokasi_rak && <span class="item-tag">📍 {item.lokasi_rak}</span>}
-          </div>
-          <div class="item-stock">
-            <div class="stock-header">
-              <span class="stock-label">Stok</span>
-              <span class="stock-value">{item.stock_saat_ini} <small>/ min {item.batas_stok_min}</small></span>
-            </div>
-            <div class="stock-track">
-              <div class="stock-fill" style={`width:${item.stockPct}%;background:${item.stockColor}`}></div>
-            </div>
-          </div>
-          <div class="item-prices">
-            <div class="price-row">
-              <span class="price-label">Beli</span>
-              <span class="price-val">{formatCurrency(item.harga_beli_awal)}</span>
-            </div>
-            <div class="price-row">
-              <span class="price-label">Jual</span>
-              <span class="price-val price-sell">{formatCurrency(item.harga_jual_eceran)}</span>
-            </div>
-            <div class="price-row">
-              <span class="price-label">Grosir</span>
-              <span class="price-val">{formatCurrency(item.harga_jual_grosir)}</span>
-            </div>
-          </div>
-          <div class="item-footer">
-            <div class="item-asset">
-              <span>Aset: <strong>{formatCurrency(item.nilai_aset)}</strong></span>
-            </div>
-            <div class="item-actions">
-              <form action={`/api/inventory/${item.id}/delete`} method="POST" style="display:inline;">
-                <button type="submit" class="btn-delete" onclick={`return confirm('Hapus ${item.nama_barang}?')`}>🗑️</button>
-              </form>
-            </div>
-          </div>
-        </div>
-      ))}
-    {itemsView.length === 0 && (
-      <div class="empty-grid">
-        <div class="empty-icon">📦</div>
-        <h3>Tidak ada barang ditemukan</h3>
-        <p>{search || kategori || statusFilter ? 'Coba ubah filter pencarian Anda.' : 'Tambahkan barang pertama Anda untuk mulai mengelola inventory.'}</p>
-        {!search && !kategori && !statusFilter && (
-          <button class="btn btn-primary" onclick="document.getElementById('addModal').classList.remove('hidden')">+ Tambah Barang Pertama</button>
-        )}
-      </div>
-    )}
-  </div>
-
+  
   <!-- Table View -->
-  <div class="table-view hidden" id="tableView">
+  <div class="table-view" id="tableView">
     <div class="table-card">
       <table>
         <thead>
@@ -249,7 +205,7 @@ if (statusFilter) pdfUrl += `?type=${statusFilter}`;
           {itemsView.map((item: ItemView, i: number) => (
             <tr class:list={[{ 'row-alt': i % 2 === 1 }]}>
               <td><code class="sku-code">{item.sku}</code></td>
-              <td><button class="qr-btn-sm" onclick="showQR('{item.id}', '{item.sku}')">📱</button></td>
+              <td><button class="qr-btn-sm" onclick={`showQR('${item.id}', '${item.sku}')`}>📱</button></td>
               <td><strong>{item.nama_barang}</strong></td>
               <td>{item.merk || '-'}</td>
               <td>{item.kategori || '-'}</td>
@@ -262,9 +218,12 @@ if (statusFilter) pdfUrl += `?type=${statusFilter}`;
               <td class="td-right">{formatCurrency(item.nilai_aset)}</td>
               <td><span class={item.statusClass}>{item.statusText}</span></td>
               <td class="td-right">
-                <form action={`/api/inventory/${item.id}/delete`} method="POST" style="display:inline;">
-                  <button type="submit" class="btn-delete" onclick={`return confirm('Hapus ${item.nama_barang}?')`}>🗑️</button>
-                </form>
+                <div class="action-btns">
+                  <button class="btn-edit" data-item-id={item.id} onclick="handleEditClick(this)" title="Edit">✏️</button>
+                  <form action={`/api/inventory/${item.id}/delete`} method="POST" style="display:inline;">
+                    <button type="submit" class="btn-delete" onclick={`return confirm('Hapus ${item.nama_barang}?')`}>🗑️</button>
+                  </form>
+                </div>
               </td>
             </tr>
           ))}
@@ -272,8 +231,10 @@ if (statusFilter) pdfUrl += `?type=${statusFilter}`;
       </table>
       {itemsView.length === 0 && (
         <div class="table-empty">
-          <span class="empty-icon">📦</span>
-          <p>Tidak ada data untuk ditampilkan</p>
+          <span class="empty-icon"></span>
+          <h3>Belum ada barang</h3>
+          <p>Klik tombol "Tambah Barang" untuk menambahkan barang pertama Anda.</p>
+          <button class="btn btn-primary" onclick="openAddModal()">+ Tambah Barang</button>
         </div>
       )}
     </div>
@@ -291,8 +252,15 @@ if (statusFilter) pdfUrl += `?type=${statusFilter}`;
       </div>
       <div class="qr-display">
         <img id="qrImage" src="" alt="QR Code" />
+        <div class="qr-logo-overlay">
+          <div class="qr-logo-box">Kay</div>
+        </div>
       </div>
-      <p class="qr-hint">Scan QR ini untuk melihat detail & update stok cepat</p>
+      <div class="qr-location" id="qrLocation">
+        <span class="qr-location-icon">📍</span>
+        <span class="qr-location-text" id="qrLocationText">-</span>
+      </div>
+      <p class="qr-hint">Scan QR ini untuk melihat detail barang (tanpa login)</p>
       <div class="qr-actions">
         <a id="qrDownload" class="btn btn-primary" download>⬇️ Download QR</a>
         <button class="btn btn-outline" onclick="printQR()">🖨️ Print QR</button>
@@ -302,106 +270,354 @@ if (statusFilter) pdfUrl += `?type=${statusFilter}`;
 
   <!-- Add Modal -->
   <div id="addModal" class="modal-overlay hidden">
-    <div class="modal modal-lg">
+    <div class="modal add-modal">
       <div class="modal-header">
-        <div>
-          <h2>Tambah Barang Baru</h2>
-          <p class="modal-sub">Lengkapi informasi barang di bawah ini — SKU akan di-generate otomatis</p>
-        </div>
-        <button class="modal-close" onclick="document.getElementById('addModal').classList.add('hidden')">&times;</button>
-      </div>
-      <form id="addItemForm" onsubmit="return submitItem(event)">
-        <div class="form-section">
-          <h4 class="section-title">Informasi Dasar</h4>
-          <div class="grid-2">
-            <div class="form-group">
-              <label>Nama Barang *</label>
-              <input type="text" name="nama_barang" class="form-control" required placeholder="Contoh: Semen Portland 50kg" />
-            </div>
-            <div class="form-group">
-              <label>Merk / Brand</label>
-              <input type="text" name="merk" class="form-control" placeholder="Contoh: Holcim, Gresik" />
-            </div>
-            <div class="form-group">
-              <label>Kategori *</label>
-              <input type="text" name="kategori" class="form-control" required list="kategoriList" placeholder="Semen, Besi, Cat, dll" />
-              <datalist id="kategoriList">
-                {categories.map((c: any) => <option value={c.kategori} />)}
-              </datalist>
-              <small class="field-hint">SKU akan dibuat otomatis dari 3 huruf pertama kategori (contoh: Semen → SMN-001)</small>
-            </div>
-            <div class="form-group">
-              <label>Satuan *</label>
-              <input type="text" name="satuan" class="form-control" required placeholder="Sak, Batang, Kg, Liter" />
-            </div>
+        <div class="modal-title-wrap">
+          <div class="modal-icon">📦</div>
+          <div>
+            <h2>Tambah Barang Baru</h2>
+            <p class="modal-sub">Isi data barang, SKU & QR Code akan dibuat otomatis oleh sistem</p>
           </div>
         </div>
+        <button class="modal-close" onclick="closeAddModal()">&times;</button>
+      </div>
 
-        <div class="form-section">
-          <h4 class="section-title">Detail & Lokasi</h4>
-          <div class="grid-3">
-            <div class="form-group">
-              <label>Lokasi Rak / Gudang</label>
-              <input type="text" name="lokasi_rak" class="form-control" placeholder="Rak A3, Gudang 2" />
+      <form id="addItemForm" onsubmit="return submitItem(event)">
+        <!-- SKU Preview Banner -->
+        <div class="sku-banner">
+          <span class="sku-banner-label">Kode SKU yang akan dibuat:</span>
+          <span class="sku-banner-value" id="skuPreviewValue">-</span>
+          <span class="sku-banner-hint">tergantung kategori yang dipilih</span>
+        </div>
+
+        <!-- Section 1: Identitas Barang -->
+        <div class="form-panel">
+          <div class="panel-header">
+            <span class="panel-icon">🏷️</span>
+            <span class="panel-title">Identitas Barang</span>
+          </div>
+          <div class="form-grid">
+            <div class="form-group fg-2">
+              <label class="field-label">Nama Barang <span class="required">*</span></label>
+              <div class="input-wrap">
+                <span class="input-icon">📋</span>
+                <input type="text" name="nama_barang" class="form-control input-with-icon" required placeholder="Contoh: Semen Portland 50kg" />
+              </div>
             </div>
             <div class="form-group">
-              <label>Supplier Utama</label>
-              <input type="text" name="supplier" class="form-control" placeholder="Nama supplier" />
+              <label class="field-label">Merk / Brand</label>
+              <div class="input-wrap">
+                <span class="input-icon">©️</span>
+                <input type="text" name="merk" class="form-control input-with-icon" placeholder="Contoh: Holcim" />
+              </div>
             </div>
             <div class="form-group">
-              <label>&nbsp;</label>
-              <div class="sku-preview" id="skuPreview">
-                <span class="sku-preview-label">SKU Preview:</span>
-                <span class="sku-preview-value" id="skuPreviewValue">-</span>
+              <label class="field-label">Kategori <span class="required">*</span></label>
+              <div class="input-wrap">
+                <span class="input-icon">🏗️</span>
+                <input type="text" name="kategori" id="kategoriInput" class="form-control input-with-icon" required list="kategoriList" placeholder="Pilih atau ketik kategori" />
+                <datalist id="kategoriList">
+                  <option value="Semen" />
+                  <option value="Besi" />
+                  <option value="Cat" />
+                  <option value="Kayu" />
+                  <option value="Pasir" />
+                  <option value="Bata" />
+                  <option value="Keramik" />
+                  <option value="Pipa" />
+                  <option value="Alat Listrik" />
+                  <option value="Alat Bangunan" />
+                  {categories.map((c: any) => <option value={c.kategori} />)}
+                </datalist>
+              </div>
+              <small class="field-hint">SKU otomatis dari kategori: Semen → SMN-001, Besi → BSI-001</small>
+            </div>
+            <div class="form-group">
+              <label class="field-label">Satuan <span class="required">*</span></label>
+              <div class="input-wrap">
+                <span class="input-icon">⚖️</span>
+                <input type="text" name="satuan" class="form-control input-with-icon" required list="satuanList" placeholder="Sak, Kg, Batang..." />
+                <datalist id="satuanList">
+                  <option value="Sak" />
+                  <option value="Kg" />
+                  <option value="Batang" />
+                  <option value="Liter" />
+                  <option value="Meter" />
+                  <option value="Buah" />
+                  <option value="Roll" />
+                  <option value="Box" />
+                </datalist>
               </div>
             </div>
           </div>
         </div>
 
-        <div class="form-section">
-          <h4 class="section-title">Stok</h4>
-          <div class="grid-3">
+        <!-- Section 2: Lokasi & Supplier -->
+        <div class="form-panel">
+          <div class="panel-header">
+            <span class="panel-icon">📍</span>
+            <span class="panel-title">Lokasi & Supplier</span>
+          </div>
+          <div class="form-grid cols-2">
             <div class="form-group">
-              <label>Stock Awal</label>
-              <input type="number" name="stock_awal" class="form-control" value="0" min="0" />
+              <label class="field-label">Lokasi Rak / Gudang</label>
+              <div class="input-wrap">
+                <span class="input-icon">🗺️</span>
+                <input type="text" name="lokasi_rak" class="form-control input-with-icon" placeholder="Contoh: Rak A3, Gudang 2" />
+              </div>
             </div>
             <div class="form-group">
-              <label>Batas Stok Minimum</label>
-              <input type="number" name="batas_stok_min" class="form-control" value="5" min="0" />
-            </div>
-            <div class="form-group">
-              <label>&nbsp;</label>
-              <div class="stock-hint">Barang akan ditandai "MENIPIS" jika stok ≤ batas minimum</div>
+              <label class="field-label">Supplier Utama</label>
+              <div class="input-wrap">
+                <span class="input-icon">🚚</span>
+                <input type="text" name="supplier" class="form-control input-with-icon" placeholder="Contoh: Toko Istana" />
+              </div>
             </div>
           </div>
         </div>
 
-        <div class="form-section">
-          <h4 class="section-title">Harga</h4>
-          <div class="grid-3">
+        <!-- Section 3: Stok -->
+        <div class="form-panel">
+          <div class="panel-header">
+            <span class="panel-icon">📊</span>
+            <span class="panel-title">Pengaturan Stok</span>
+          </div>
+          <div class="form-grid cols-3">
             <div class="form-group">
-              <label>Harga Beli (Rp)</label>
-              <input type="number" name="harga_beli_awal" class="form-control" value="0" min="0" />
+              <label class="field-label">Stok Awal</label>
+              <div class="number-stepper">
+                <button type="button" class="stepper-btn" onclick="adjustNumber('stock_awal', -1)">−</button>
+                <input type="number" name="stock_awal" id="stock_awal" class="form-control stepper-input" value="0" min="0" />
+                <button type="button" class="stepper-btn" onclick="adjustNumber('stock_awal', 1)">+</button>
+              </div>
             </div>
             <div class="form-group">
-              <label>Harga Jual Eceran (Rp)</label>
-              <input type="number" name="harga_jual_eceran" class="form-control" value="0" min="0" />
+              <label class="field-label">Batas Stok Minimum</label>
+              <div class="number-stepper">
+                <button type="button" class="stepper-btn" onclick="adjustNumber('batas_stok_min', -1)">−</button>
+                <input type="number" name="batas_stok_min" id="batas_stok_min" class="form-control stepper-input" value="5" min="0" />
+                <button type="button" class="stepper-btn" onclick="adjustNumber('batas_stok_min', 1)">+</button>
+              </div>
             </div>
-            <div class="form-group">
-              <label>Harga Jual Grosir (Rp)</label>
-              <input type="number" name="harga_jual_grosir" class="form-control" value="0" min="0" />
+            <div class="form-group stock-info-box">
+              <div class="stock-info-content">
+                <span class="info-icon">💡</span>
+                <p>Barang akan otomatis ditandai <strong>"MENIPIS"</strong> jika stok saat ini ≤ batas minimum.</p>
+              </div>
             </div>
           </div>
         </div>
 
-        <div class="form-section">
-          <h4 class="section-title">Keterangan</h4>
-          <textarea name="keterangan" class="form-control" rows="2" placeholder="Catatan tambahan (opsional)"></textarea>
+        <!-- Section 4: Harga -->
+        <div class="form-panel">
+          <div class="panel-header">
+            <span class="panel-icon">💰</span>
+            <span class="panel-title">Harga</span>
+          </div>
+          <div class="form-grid cols-3">
+            <div class="form-group">
+              <label class="field-label">Harga Beli</label>
+              <div class="input-wrap">
+                <span class="rp-prefix">Rp</span>
+                <input type="text" name="harga_beli_awal" class="form-control input-with-prefix" value="0" placeholder="0" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="field-label">Harga Jual Eceran</label>
+              <div class="input-wrap">
+                <span class="rp-prefix">Rp</span>
+                <input type="text" name="harga_jual_eceran" class="form-control input-with-prefix" value="0" placeholder="0" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="field-label">Harga Jual Grosir</label>
+              <div class="input-wrap">
+                <span class="rp-prefix">Rp</span>
+                <input type="text" name="harga_jual_grosir" class="form-control input-with-prefix" value="0" placeholder="0" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 5: Catatan -->
+        <div class="form-panel">
+          <div class="panel-header">
+            <span class="panel-icon">📝</span>
+            <span class="panel-title">Catatan Tambahan</span>
+          </div>
+          <div class="form-group">
+            <textarea name="keterangan" class="form-control" rows="2" placeholder="Catatan opsional tentang barang ini..."></textarea>
+          </div>
         </div>
 
         <div class="modal-actions">
-          <button type="button" class="btn btn-outline" onclick="document.getElementById('addModal').classList.add('hidden')">Batal</button>
-          <button type="submit" class="btn btn-primary btn-lg" id="submitBtn">💾 Simpan Barang</button>
+          <button type="button" class="btn btn-outline btn-lg" onclick="closeAddModal()">Batal</button>
+          <button type="submit" class="btn btn-primary btn-lg" id="submitBtn">
+            <span>💾</span> Simpan Barang
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Edit Modal -->
+  <div id="editModal" class="modal-overlay hidden">
+    <div class="modal add-modal">
+      <div class="modal-header">
+        <div class="modal-title-wrap">
+          <div class="modal-icon">✏️</div>
+          <div>
+            <h2>Edit Barang</h2>
+            <p class="modal-sub" id="editModalSku">-</p>
+          </div>
+        </div>
+        <button class="modal-close" onclick="closeEditModal()">&times;</button>
+      </div>
+
+      <form id="editItemForm" onsubmit="return submitEdit(event)">
+        <input type="hidden" name="id" id="editItemId" />
+
+        <!-- Section 1: Identitas Barang -->
+        <div class="form-panel">
+          <div class="panel-header">
+            <span class="panel-icon">️</span>
+            <span class="panel-title">Identitas Barang</span>
+          </div>
+          <div class="form-grid">
+            <div class="form-group fg-2">
+              <label class="field-label">Nama Barang <span class="required">*</span></label>
+              <div class="input-wrap">
+                <span class="input-icon">📋</span>
+                <input type="text" name="nama_barang" id="editNama" class="form-control input-with-icon" required />
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="field-label">Merk / Brand</label>
+              <div class="input-wrap">
+                <span class="input-icon">©️</span>
+                <input type="text" name="merk" id="editMerk" class="form-control input-with-icon" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="field-label">Kategori <span class="required">*</span></label>
+              <div class="input-wrap">
+                <span class="input-icon">🏗️</span>
+                <input type="text" name="kategori" id="editKategori" class="form-control input-with-icon" required list="kategoriList" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="field-label">Satuan <span class="required">*</span></label>
+              <div class="input-wrap">
+                <span class="input-icon">⚖️</span>
+                <input type="text" name="satuan" id="editSatuan" class="form-control input-with-icon" required list="satuanList" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 2: Lokasi & Supplier -->
+        <div class="form-panel">
+          <div class="panel-header">
+            <span class="panel-icon">📍</span>
+            <span class="panel-title">Lokasi & Supplier</span>
+          </div>
+          <div class="form-grid cols-2">
+            <div class="form-group">
+              <label class="field-label">Lokasi Rak / Gudang</label>
+              <div class="input-wrap">
+                <span class="input-icon">🗺️</span>
+                <input type="text" name="lokasi_rak" id="editLokasi" class="form-control input-with-icon" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="field-label">Supplier Utama</label>
+              <div class="input-wrap">
+                <span class="input-icon">🚚</span>
+                <input type="text" name="supplier" id="editSupplier" class="form-control input-with-icon" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 3: Stok -->
+        <div class="form-panel">
+          <div class="panel-header">
+            <span class="panel-icon">📊</span>
+            <span class="panel-title">Pengaturan Stok</span>
+          </div>
+          <div class="form-grid cols-3">
+            <div class="form-group">
+              <label class="field-label">Stok Saat Ini</label>
+              <div class="number-stepper">
+                <button type="button" class="stepper-btn" onclick="adjustNumber('editStock', -1)">−</button>
+                <input type="number" name="stock_saat_ini" id="editStock" class="form-control stepper-input" value="0" min="0" />
+                <button type="button" class="stepper-btn" onclick="adjustNumber('editStock', 1)">+</button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="field-label">Batas Stok Minimum</label>
+              <div class="number-stepper">
+                <button type="button" class="stepper-btn" onclick="adjustNumber('editMinStock', -1)">−</button>
+                <input type="number" name="batas_stok_min" id="editMinStock" class="form-control stepper-input" value="5" min="0" />
+                <button type="button" class="stepper-btn" onclick="adjustNumber('editMinStock', 1)">+</button>
+              </div>
+            </div>
+            <div class="form-group stock-info-box">
+              <div class="stock-info-content">
+                <span class="info-icon">💡</span>
+                <p>Barang otomatis ditandai <strong>"MENIPIS"</strong> jika stok ≤ batas minimum.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 4: Harga -->
+        <div class="form-panel">
+          <div class="panel-header">
+            <span class="panel-icon">💰</span>
+            <span class="panel-title">Harga</span>
+          </div>
+          <div class="form-grid cols-3">
+            <div class="form-group">
+              <label class="field-label">Harga Beli</label>
+              <div class="input-wrap">
+                <span class="rp-prefix">Rp</span>
+                <input type="text" name="harga_beli_awal" id="editHargaBeli" class="form-control input-with-prefix" value="0" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="field-label">Harga Jual Eceran</label>
+              <div class="input-wrap">
+                <span class="rp-prefix">Rp</span>
+                <input type="text" name="harga_jual_eceran" id="editHargaJual" class="form-control input-with-prefix" value="0" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="field-label">Harga Jual Grosir</label>
+              <div class="input-wrap">
+                <span class="rp-prefix">Rp</span>
+                <input type="text" name="harga_jual_grosir" id="editHargaGrosir" class="form-control input-with-prefix" value="0" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 5: Catatan -->
+        <div class="form-panel">
+          <div class="panel-header">
+            <span class="panel-icon">📝</span>
+            <span class="panel-title">Catatan Tambahan</span>
+          </div>
+          <div class="form-group">
+            <textarea name="keterangan" id="editKeterangan" class="form-control" rows="2" placeholder="Catatan opsional..."></textarea>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn btn-outline btn-lg" onclick="closeEditModal()">Batal</button>
+          <button type="submit" class="btn btn-primary btn-lg" id="editSubmitBtn">
+            <span>💾</span> Update Barang
+          </button>
         </div>
       </form>
     </div>
@@ -412,22 +628,44 @@ if (statusFilter) pdfUrl += `?type=${statusFilter}`;
     <span id="toastMsg"></span>
   </div>
 
-  <script>
-    let currentView = 'card';
+  <!-- Hidden element to store items data for client-side JS -->
+  <div id="itemsDataStore" data-items={itemsJSON} style="display:none"></div>
 
-    function switchView(view) {
-      currentView = view;
-      document.getElementById('cardView').classList.toggle('hidden', view !== 'card');
-      document.getElementById('tableView').classList.toggle('hidden', view !== 'table');
-      document.querySelectorAll('.view-btn').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.view === view);
-      });
+  <script is:inline>
+    // Item data array for edit functionality - read from data attribute
+    let itemsData = [];
+    try {
+      const store = document.getElementById('itemsDataStore');
+      if (store) {
+        itemsData = JSON.parse(store.getAttribute('data-items') || '[]');
+      }
+    } catch (e) {
+      console.error('Failed to parse items data:', e);
+    }
+
+    function handleEditClick(btn) {
+      const itemId = btn.getAttribute('data-item-id');
+      const item = itemsData.find(i => i.id === itemId);
+      if (!item) {
+        alert('Data barang tidak ditemukan');
+        return;
+      }
+      openEditModal(
+        item.id, item.sku, item.nama_barang, item.merk, item.kategori,
+        item.satuan, item.lokasi_rak, item.supplier, item.stock_saat_ini,
+        item.batas_stok_min, item.harga_beli_awal, item.harga_jual_eceran,
+        item.harga_jual_grosir, item.keterangan
+      );
     }
 
     function showQR(id, sku) {
       document.getElementById('qrModalSku').textContent = sku;
       document.getElementById('qrImage').src = `/api/inventory/${id}/qr`;
       document.getElementById('qrDownload').href = `/api/inventory/${id}/qr`;
+      // Set location text from itemsData
+      const item = itemsData.find(i => i.id === id);
+      const locationText = item && item.lokasi_rak ? `Rak ${item.lokasi_rak}` : 'Lokasi tidak tersedia';
+      document.getElementById('qrLocationText').textContent = locationText;
       document.getElementById('qrModal').classList.remove('hidden');
     }
 
@@ -445,12 +683,56 @@ if (statusFilter) pdfUrl += `?type=${statusFilter}`;
       w.print();
     }
 
+    function openAddModal() {
+      document.getElementById('addModal').classList.remove('hidden');
+      document.getElementById('skuPreviewValue').textContent = '-';
+      document.querySelector('input[name="nama_barang"]').focus();
+    }
+
+    function closeAddModal() {
+      document.getElementById('addModal').classList.add('hidden');
+      document.getElementById('addItemForm').reset();
+      document.getElementById('skuPreviewValue').textContent = '-';
+    }
+
+    // Edit modal functions
+    function openEditModal(id, sku, nama, merk, kategori, satuan, lokasi, supplier, stock, minStock, hargaBeli, hargaJual, hargaGrosir, keterangan) {
+      document.getElementById('editItemId').value = id;
+      document.getElementById('editModalSku').textContent = 'SKU: ' + sku;
+      document.getElementById('editNama').value = nama;
+      document.getElementById('editMerk').value = merk;
+      document.getElementById('editKategori').value = kategori;
+      document.getElementById('editSatuan').value = satuan;
+      document.getElementById('editLokasi').value = lokasi;
+      document.getElementById('editSupplier').value = supplier;
+      document.getElementById('editStock').value = stock;
+      document.getElementById('editMinStock').value = minStock;
+      document.getElementById('editHargaBeli').value = hargaBeli;
+      document.getElementById('editHargaJual').value = hargaJual;
+      document.getElementById('editHargaGrosir').value = hargaGrosir;
+      document.getElementById('editKeterangan').value = keterangan;
+      document.getElementById('editModal').classList.remove('hidden');
+    }
+
+    function closeEditModal() {
+      document.getElementById('editModal').classList.add('hidden');
+      document.getElementById('editItemForm').reset();
+    }
+
+    function adjustNumber(id, delta) {
+      const input = document.getElementById(id);
+      let val = parseInt(input.value) || 0;
+      val = Math.max(0, val + delta);
+      input.value = val;
+    }
+
     async function submitItem(e) {
       e.preventDefault();
       const form = e.target;
       const btn = document.getElementById('submitBtn');
+      const originalText = btn.innerHTML;
       btn.disabled = true;
-      btn.textContent = '⏳ Menyimpan...';
+      btn.innerHTML = '<span>⏳</span> Menyimpan...';
 
       const formData = new FormData(form);
 
@@ -462,20 +744,53 @@ if (statusFilter) pdfUrl += `?type=${statusFilter}`;
 
         if (res.ok) {
           const data = await res.json();
-          form.reset();
-          document.getElementById('addModal').classList.add('hidden');
-          document.getElementById('skuPreviewValue').textContent = '-';
-          showToast(`✅ Barang berhasil ditambahkan! SKU: ${data.sku}`);
-          setTimeout(() => location.reload(), 1500);
+          closeAddModal();
+          showToast(`✅ ${data.nama_barang || 'Barang'} berhasil disimpan! SKU: ${data.sku}`);
+          setTimeout(() => location.reload(), 1800);
         } else {
           const err = await res.text();
-          alert('Gagal: ' + err);
+          alert('Gagal menyimpan: ' + err);
         }
       } catch (err) {
         alert('Error: ' + err.message);
       } finally {
         btn.disabled = false;
-        btn.textContent = '💾 Simpan Barang';
+        btn.innerHTML = originalText;
+      }
+      return false;
+    }
+
+    async function submitEdit(e) {
+      e.preventDefault();
+      const form = e.target;
+      const btn = document.getElementById('editSubmitBtn');
+      const originalText = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<span>⏳</span> Mengupdate...';
+
+      const formData = new FormData(form);
+      const id = formData.get('id');
+
+      try {
+        const res = await fetch(`/api/inventory/${id}/update`, {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          closeEditModal();
+          showToast(`✅ ${data.nama_barang || 'Barang'} berhasil diupdate!`);
+          setTimeout(() => location.reload(), 1800);
+        } else {
+          const err = await res.text();
+          alert('Gagal mengupdate: ' + err);
+        }
+      } catch (err) {
+        alert('Error: ' + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
       }
       return false;
     }
@@ -484,18 +799,35 @@ if (statusFilter) pdfUrl += `?type=${statusFilter}`;
       const toast = document.getElementById('successToast');
       document.getElementById('toastMsg').textContent = msg;
       toast.classList.remove('hidden');
-      setTimeout(() => toast.classList.add('hidden'), 3000);
+      setTimeout(() => toast.classList.add('hidden'), 4000);
     }
 
     // Live SKU preview when typing category
-    document.querySelector('input[name="kategori"]').addEventListener('input', function() {
-      const val = this.value.trim();
-      if (val.length >= 1) {
-        const prefix = val.substring(0, 3).toUpperCase().replace(/[^A-Z0-9]/g, 'X');
-        document.getElementById('skuPreviewValue').textContent = `${prefix}-??? (auto)`;
-      } else {
-        document.getElementById('skuPreviewValue').textContent = '-';
-      }
+    const kategoriInput = document.getElementById('kategoriInput');
+    if (kategoriInput) {
+      kategoriInput.addEventListener('input', function() {
+        const val = this.value.trim();
+        const preview = document.getElementById('skuPreviewValue');
+        if (val.length >= 1) {
+          const prefix = val.substring(0, 3).toUpperCase().replace(/[^A-Z0-9]/g, 'X');
+          preview.textContent = `${prefix}-001`;
+          preview.classList.add('has-value');
+        } else {
+          preview.textContent = '-';
+          preview.classList.remove('has-value');
+        }
+      });
+    }
+
+    // Close modal on outside click
+    document.getElementById('addModal').addEventListener('click', function(e) {
+      if (e.target === this) closeAddModal();
+    });
+    document.getElementById('qrModal').addEventListener('click', function(e) {
+      if (e.target === this) this.classList.add('hidden');
+    });
+    document.getElementById('editModal').addEventListener('click', function(e) {
+      if (e.target === this) closeEditModal();
     });
   </script>
 
@@ -538,7 +870,7 @@ if (statusFilter) pdfUrl += `?type=${statusFilter}`;
       font-size: 1.3rem; flex-shrink: 0;
       box-shadow: 0 2px 8px rgba(0,0,0,0.06);
     }
-    .sum-blue { background: #dbeafe; }
+    .sum-blue { background: #eef2ff; }
     .sum-green { background: #d1fae5; }
     .sum-amber { background: #fef3c7; }
     .sum-red { background: #fee2e2; }
@@ -701,6 +1033,26 @@ if (statusFilter) pdfUrl += `?type=${statusFilter}`;
       transition: background 0.15s;
     }
     .btn-delete:hover { background: #fee2e2; }
+    .btn-edit {
+      background: none; border: none; cursor: pointer;
+      font-size: 1rem; padding: 0.3rem; border-radius: 0.4rem;
+      transition: background 0.15s;
+    }
+    .btn-edit:hover { background: #eef2ff; }
+    .action-btns {
+      display: flex;
+      gap: 0.25rem;
+      justify-content: flex-end;
+      align-items: center;
+    }
+
+    .table-empty {
+      text-align: center;
+      padding: 3rem 1rem;
+      color: var(--gray-500);
+    }
+    .table-empty h3 { font-size: 1.1rem; color: var(--gray-700); margin-bottom: 0.4rem; }
+    .table-empty p { font-size: 0.9rem; margin-bottom: 1.25rem; }
 
     .empty-grid {
       grid-column: 1 / -1;
@@ -764,29 +1116,65 @@ if (statusFilter) pdfUrl += `?type=${statusFilter}`;
     .qr-btn-sm:hover { background: var(--gray-100); }
     .td-right { text-align: right; }
     .th-right { text-align: right; }
-    .table-empty {
-      text-align: center;
-      padding: 3rem 1rem;
-      color: var(--gray-500);
-    }
 
     /* QR Modal */
     .qr-modal { max-width: 420px; text-align: center; }
     .qr-display {
+      position: relative;
       padding: 1.5rem;
       background: white;
       border: 2px solid var(--gray-200);
       border-radius: 0.75rem;
       margin: 1rem 0;
+      display: flex;
+      justify-content: center;
     }
     .qr-display img {
-      width: 220px;
-      height: 220px;
+      width: 250px;
+      height: 250px;
+    }
+    .qr-logo-overlay {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+    }
+    .qr-logo-box {
+      background: #ffffff;
+      border: 3px solid #4f46e5;
+      border-radius: 10px;
+      padding: 8px 14px;
+      font-family: 'Inter', Arial, Helvetica, sans-serif;
+      font-size: 20px;
+      font-weight: 900;
+      color: #4f46e5;
+      letter-spacing: 1px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
     }
     .qr-hint {
       font-size: 0.82rem;
       color: var(--gray-500);
       margin-bottom: 1rem;
+    }
+    .qr-location {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      background: #eef2ff;
+      border: 1px solid #c7d2fe;
+      border-radius: 0.75rem;
+      padding: 0.75rem 1rem;
+      margin-bottom: 1rem;
+    }
+    .qr-location-icon {
+      font-size: 1.2rem;
+    }
+    .qr-location-text {
+      font-size: 1rem;
+      font-weight: 700;
+      color: #4338ca;
     }
     .qr-actions {
       display: flex;
@@ -794,49 +1182,177 @@ if (statusFilter) pdfUrl += `?type=${statusFilter}`;
       justify-content: center;
     }
 
-    /* Modal */
-    .modal-lg { max-width: 720px; }
+    /* Add Modal */
+    .add-modal { max-width: 760px; width: 92%; }
+    .modal-title-wrap {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    .modal-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 0.75rem;
+      background: linear-gradient(135deg, #e0e7ff, #c7d2fe);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.4rem;
+    }
     .modal-sub { font-size: 0.82rem; color: var(--gray-500); margin-top: 0.2rem; }
-    .form-section {
+
+    .sku-banner {
+      background: linear-gradient(135deg, #4f46e5, #6366f1);
+      color: white;
+      border-radius: 0.75rem;
+      padding: 0.85rem 1rem;
       margin-bottom: 1.25rem;
-      padding-bottom: 1.25rem;
-      border-bottom: 1px solid var(--gray-100);
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      flex-wrap: wrap;
     }
-    .form-section:last-of-type { border-bottom: none; }
-    .section-title {
-      font-size: 0.85rem; font-weight: 600; color: var(--primary);
-      margin-bottom: 0.75rem;
-      padding-bottom: 0.4rem;
-      border-bottom: 2px solid var(--primary-light);
-      display: inline-block;
+    .sku-banner-label { font-size: 0.78rem; opacity: 0.9; }
+    .sku-banner-value {
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 1rem;
+      font-weight: 700;
+      background: rgba(255,255,255,0.2);
+      padding: 0.25rem 0.75rem;
+      border-radius: 0.4rem;
+      letter-spacing: 0.02em;
     }
-    .field-hint {
-      font-size: 0.72rem;
-      color: var(--gray-500);
-      margin-top: 0.25rem;
-      display: block;
+    .sku-banner-value.has-value { background: rgba(255,255,255,0.3); }
+    .sku-banner-hint { font-size: 0.72rem; opacity: 0.8; margin-left: auto; }
+
+    .form-panel {
+      background: white;
+      border: 1px solid var(--gray-200);
+      border-radius: 0.85rem;
+      padding: 1rem 1.25rem 1.25rem;
+      margin-bottom: 1rem;
     }
-    .sku-preview {
-      background: var(--gray-50);
-      border: 1px dashed var(--gray-300);
-      border-radius: 0.5rem;
-      padding: 0.6rem 0.75rem;
+    .panel-header {
       display: flex;
       align-items: center;
       gap: 0.5rem;
+      margin-bottom: 1rem;
+      padding-bottom: 0.6rem;
+      border-bottom: 1px solid var(--gray-100);
     }
-    .sku-preview-label { font-size: 0.75rem; color: var(--gray-500); }
-    .sku-preview-value {
-      font-family: 'SF Mono', 'Fira Code', monospace;
-      font-size: 0.85rem;
+    .panel-icon { font-size: 1.1rem; }
+    .panel-title { font-size: 0.9rem; font-weight: 700; color: var(--gray-800); }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 1rem 1.25rem;
+    }
+    .form-grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
+    .form-grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
+    .form-group.fg-2 { grid-column: span 2; }
+
+    .field-label {
+      display: block;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--gray-700);
+      margin-bottom: 0.4rem;
+    }
+    .field-label .required { color: var(--danger); }
+
+    .input-wrap {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+    .input-icon {
+      position: absolute;
+      left: 0.75rem;
+      font-size: 0.95rem;
+      pointer-events: none;
+      opacity: 0.7;
+    }
+    .input-with-icon {
+      padding-left: 2.4rem !important;
+    }
+    .rp-prefix {
+      position: absolute;
+      left: 0.85rem;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--gray-500);
+      pointer-events: none;
+    }
+    .input-with-prefix {
+      padding-left: 2.6rem !important;
+    }
+    .form-control {
+      border: 1.5px solid var(--gray-300);
+      transition: all 0.15s;
+    }
+    .form-control:hover { border-color: var(--gray-400); }
+    .form-control:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(26,86,219,0.12);
+    }
+
+    .field-hint {
+      font-size: 0.72rem;
+      color: var(--gray-500);
+      margin-top: 0.35rem;
+      display: block;
+      line-height: 1.4;
+    }
+
+    /* Number stepper */
+    .number-stepper {
+      display: flex;
+      align-items: stretch;
+      border: 1.5px solid var(--gray-300);
+      border-radius: 0.5rem;
+      overflow: hidden;
+    }
+    .number-stepper:focus-within { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(26,86,219,0.12); }
+    .stepper-btn {
+      width: 38px;
+      background: var(--gray-50);
+      border: none;
+      cursor: pointer;
+      font-size: 1rem;
       font-weight: 700;
-      color: var(--primary);
+      color: var(--gray-700);
+      transition: background 0.15s;
     }
-    .stock-hint {
-      font-size: 0.75rem; color: var(--gray-500);
-      background: #fef3c7; padding: 0.5rem 0.75rem;
-      border-radius: 0.5rem; border-left: 3px solid var(--warning);
+    .stepper-btn:hover { background: var(--gray-200); }
+    .stepper-input {
+      border: none !important;
+      border-radius: 0 !important;
+      text-align: center;
+      font-weight: 700;
+      padding: 0.5rem 0.25rem !important;
+      min-width: 60px;
     }
+    .stepper-input:focus { box-shadow: none !important; }
+
+    .stock-info-box {
+      display: flex;
+      align-items: center;
+    }
+    .stock-info-content {
+      background: #fefce8;
+      border: 1px solid #fde047;
+      border-radius: 0.5rem;
+      padding: 0.65rem 0.85rem;
+      display: flex;
+      align-items: flex-start;
+      gap: 0.5rem;
+      font-size: 0.78rem;
+      color: var(--gray-700);
+      line-height: 1.4;
+    }
+    .info-icon { font-size: 1rem; flex-shrink: 0; }
+
     .modal-actions {
       display: flex; justify-content: flex-end; gap: 0.75rem;
       margin-top: 1.5rem; padding-top: 1rem;
@@ -874,6 +1390,14 @@ if (statusFilter) pdfUrl += `?type=${statusFilter}`;
       .header-actions { flex-wrap: wrap; }
       .table-card { overflow-x: auto; }
       .toolbar { flex-direction: column; align-items: flex-start; }
+      .form-grid,
+      .form-grid.cols-2,
+      .form-grid.cols-3 { grid-template-columns: 1fr; }
+      .form-group.fg-2 { grid-column: span 1; }
+      .sku-banner { flex-direction: column; align-items: flex-start; }
+      .sku-banner-hint { margin-left: 0; }
+      .modal-actions { flex-direction: column-reverse; }
+      .modal-actions .btn { width: 100%; justify-content: center; }
     }
   </style>
 </Layout>

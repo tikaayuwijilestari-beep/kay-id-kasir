@@ -8,35 +8,116 @@ const user = await requireAuth(env, Astro.request);
 if (user instanceof Response) return user;
 
 const db = await getDB(env);
+
+// Auto-migrate: ensure harga_beli column exists
+try {
+  const columns = await db.prepare("PRAGMA table_info(sales_items)").all();
+  const hasHargaBeli = columns.results.some((c: any) => c.name === 'harga_beli');
+  if (!hasHargaBeli) {
+    await db.prepare("ALTER TABLE sales_items ADD COLUMN harga_beli REAL DEFAULT 0").run();
+  }
+} catch (e) {
+  // Ignore migration errors
+}
+
+// Auto-migrate: ensure customer_phone column exists on sales table
+try {
+  const salesColumns = await db.prepare("PRAGMA table_info(sales)").all();
+  const hasCustomerPhone = salesColumns.results.some((c: any) => c.name === 'customer_phone');
+  if (!hasCustomerPhone) {
+    await db.prepare("ALTER TABLE sales ADD COLUMN customer_phone TEXT").run();
+  }
+} catch (e) {
+  // Ignore migration errors
+}
+
 const items = (await db.prepare('SELECT * FROM inventory WHERE stock_saat_ini > 0 ORDER BY nama_barang ASC').all()).results as any[];
+
+// QRIS image URL - can be set via environment variable or database
+// For now, use environment variable QRIS_IMAGE_URL or leave empty for placeholder
+const qrisImageUrl = env.QRIS_IMAGE_URL || '';
+
+// Today's sales summary
+const todaySummary = await db.prepare(`
+  SELECT COUNT(*) as transactions,
+    COALESCE(SUM(total), 0) as revenue
+  FROM sales WHERE tanggal = date('now')
+`).first() as any;
+
+// Calculate today's profit
+const todaySales = (await db.prepare(`
+  SELECT s.id FROM sales s WHERE s.tanggal = date('now')
+`).all()).results as any[];
+
+let todayProfit = 0;
+for (const sale of todaySales) {
+  const saleItems = (await db.prepare('SELECT * FROM sales_items WHERE sale_id = ?').bind(sale.id).all()).results as any[];
+  for (const item of saleItems) {
+    todayProfit += ((item.harga_satuan || 0) - (item.harga_beli || 0)) * item.qty;
+  }
+}
 ---
 
 <Layout title="Kasir / POS" user={user} activePage="/pos">
+  <!-- Today's Summary Panel -->
+  <div class="today-summary">
+    <div class="ts-item">
+      <div class="ts-icon">🧾</div>
+      <div class="ts-data">
+        <span class="ts-label">Transaksi Hari Ini</span>
+        <span class="ts-value">{todaySummary?.transactions || 0}</span>
+      </div>
+    </div>
+    <div class="ts-item">
+      <div class="ts-icon">💰</div>
+      <div class="ts-data">
+        <span class="ts-label">Pendapatan Hari Ini</span>
+        <span class="ts-value">{formatCurrency(todaySummary?.revenue || 0)}</span>
+      </div>
+    </div>
+    <div class="ts-item">
+      <div class="ts-icon">💹</div>
+      <div class="ts-data">
+        <span class="ts-label">Profit Hari Ini</span>
+        <span class="ts-value" style="color:var(--success);">{formatCurrency(todayProfit)}</span>
+      </div>
+    </div>
+    <div class="ts-item">
+      <a href="/sales" class="ts-link">
+        <div class="ts-icon">📊</div>
+        <div class="ts-data">
+          <span class="ts-label">Riwayat Penjualan</span>
+          <span class="ts-value" style="font-size:0.9rem;">Lihat Detail →</span>
+        </div>
+      </a>
+    </div>
+  </div>
+
   <div class="page-header">
     <h1>Kasir / Point of Sale</h1>
   </div>
 
-  <div class="grid-2" style="grid-template-columns: 1.5fr 1fr; gap: 1rem;">
+  <div class="pos-layout">
     <!-- Left: Product Selection -->
-    <div>
+    <div class="pos-products">
       <div class="card">
         <div class="search-bar">
           <input type="text" id="barcodeInput" class="form-control" placeholder="Scan barcode atau ketik SKU/nama barang..." autofocus />
-          <button class="btn btn-primary" onclick="searchProduct()">Cari</button>
+          <button class="btn btn-primary" id="searchBtn">Cari</button>
         </div>
-        <div class="table-wrap" style="max-height:400px;overflow-y:auto;">
+        <div class="table-wrap" style="max-height:450px;overflow-y:auto;">
           <table>
             <thead>
               <tr><th>SKU</th><th>Nama</th><th>Stock</th><th>Harga</th><th>Aksi</th></tr>
             </thead>
             <tbody id="productList">
               {items.map((item: any) => (
-                <tr data-sku={item.sku} data-name={item.nama_barang} data-price={item.harga_jual_eceran} data-id={item.id} data-stock={item.stock_saat_ini}>
+                <tr class="product-row" data-sku={item.sku} data-name={item.nama_barang} data-price={String(item.harga_jual_eceran)} data-id={item.id} data-stock={String(item.stock_saat_ini)} data-satuan={item.satuan}>
                   <td><code>{item.sku}</code></td>
                   <td>{item.nama_barang}</td>
                   <td>{item.stock_saat_ini} {item.satuan}</td>
                   <td>{formatCurrency(item.harga_jual_eceran)}</td>
-                  <td><button class="btn btn-primary btn-sm" onclick='addToCart("{item.id}", "{item.sku}", "{item.nama_barang}", {item.harga_jual_eceran}, {item.stock_saat_ini})'>+ Tambah</button></td>
+                  <td><button class="btn btn-primary btn-sm add-cart-btn">+ Tambah</button></td>
                 </tr>
               ))}
             </tbody>
@@ -46,9 +127,12 @@ const items = (await db.prepare('SELECT * FROM inventory WHERE stock_saat_ini > 
     </div>
 
     <!-- Right: Cart -->
-    <div>
+    <div class="pos-cart">
       <div class="card" style="position:sticky;top:1.5rem;">
-        <h3 style="margin-bottom:1rem;">Keranjang Belanja</h3>
+        <h3 style="margin-bottom:1rem;display:flex;align-items:center;gap:0.5rem;">
+          <span>🛒</span> Keranjang Belanja
+          <span id="cartCount" class="cart-count">0</span>
+        </h3>
         <div id="cartItems" style="min-height:100px;max-height:300px;overflow-y:auto;">
           <p style="color:var(--gray-500);text-align:center;padding:2rem;">Keranjang kosong</p>
         </div>
@@ -57,10 +141,17 @@ const items = (await db.prepare('SELECT * FROM inventory WHERE stock_saat_ini > 
           <span>Subtotal:</span>
           <strong id="subtotalDisplay">Rp 0</strong>
         </div>
-        <div class="flex-between mb-1">
+        <div class="flex-between mb-1" style="align-items:center;">
           <span>Diskon:</span>
-          <input type="number" id="discountInput" class="form-control" style="width:120px;text-align:right;" value="0" min="0" onchange="updateTotal()" />
+          <div style="display:flex;gap:4px;align-items:center;">
+            <input type="number" id="discountInput" class="form-control" style="width:90px;text-align:right;" value="0" min="0" step="0.01" />
+            <div style="display:flex;border-radius:6px;overflow:hidden;border:1px solid var(--border);">
+              <button type="button" id="discModeRp" class="disc-mode-btn active" onclick="setDiscountMode('rp')" style="padding:4px 10px;font-size:0.75rem;font-weight:700;border:none;cursor:pointer;background:var(--primary);color:white;">Rp</button>
+              <button type="button" id="discModePct" class="disc-mode-btn" onclick="setDiscountMode('pct')" style="padding:4px 10px;font-size:0.75rem;font-weight:700;border:none;cursor:pointer;background:var(--bg);color:var(--text);">%</button>
+            </div>
+          </div>
         </div>
+        <div id="discountInfo" style="font-size:0.7rem;color:var(--text-secondary);text-align:right;margin-bottom:4px;"></div>
         <div class="flex-between mb-2" style="font-size:1.15rem;">
           <span><strong>Total:</strong></span>
           <strong id="totalDisplay" style="color:var(--primary);font-size:1.25rem;">Rp 0</strong>
@@ -68,36 +159,184 @@ const items = (await db.prepare('SELECT * FROM inventory WHERE stock_saat_ini > 
 
         <div class="form-group">
           <label>Metode Pembayaran</label>
-          <select id="paymentMethod" class="form-control">
-            <option value="manual">Tunai / Manual</option>
-            <option value="qris">QRIS</option>
-            <option value="transfer">Transfer Bank</option>
-          </select>
+          <div class="payment-options">
+            <label class="payment-option">
+              <input type="radio" name="paymentMethod" value="manual" checked />
+              <span class="payment-radio"></span>
+              <span class="payment-label">
+                <span class="payment-emoji">💵</span>
+                <span>Tunai</span>
+              </span>
+            </label>
+            <label class="payment-option">
+              <input type="radio" name="paymentMethod" value="qris" />
+              <span class="payment-radio"></span>
+              <span class="payment-label">
+                <span class="payment-emoji">📱</span>
+                <span>QRIS</span>
+              </span>
+            </label>
+            <label class="payment-option">
+              <input type="radio" name="paymentMethod" value="transfer" />
+              <span class="payment-radio"></span>
+              <span class="payment-label">
+                <span class="payment-emoji">🏦</span>
+                <span>Transfer</span>
+              </span>
+            </label>
+          </div>
         </div>
         <div class="form-group">
           <label>Nama Pembeli (opsional)</label>
           <input type="text" id="customerName" class="form-control" placeholder="Nama pembeli" />
         </div>
         <div class="form-group">
+          <label>No. WhatsApp (opsional)</label>
+          <input type="tel" id="customerPhone" class="form-control" placeholder="08xx... untuk kirim nota via WA" />
+        </div>
+        <div class="form-group">
           <label>Catatan</label>
           <textarea id="orderNotes" class="form-control" rows="2" placeholder="Catatan pesanan..."></textarea>
         </div>
 
-        <button class="btn btn-success" style="width:100%;padding:0.75rem;font-size:1rem;" onclick="checkout()">Bayar & Cetak Invoice</button>
+        <button class="btn btn-success" id="checkoutBtn" style="width:100%;padding:0.85rem;font-size:1rem;font-weight:700;">
+          💳 Bayar & Cetak Invoice
+        </button>
       </div>
     </div>
   </div>
 
-  <script>
+  <!-- QRIS Modal -->
+  <div id="qrisModal" class="qris-modal" style="display:none;">
+    <div class="qris-overlay"></div>
+    <div class="qris-dialog">
+      <div class="qris-header">
+        <div class="qris-brand">
+          <span class="qris-logo">QRIS</span>
+          <span class="qris-brand-text">KAY ID TOKO BANGUNAN</span>
+        </div>
+        <button class="qris-close" id="qrisCloseBtn">&times;</button>
+      </div>
+      <div class="qris-body">
+        <div class="qris-amount-section">
+          <span class="qris-amount-label">Total Pembayaran</span>
+          <span class="qris-amount-value" id="qrisAmount">Rp 0</span>
+        </div>
+        <div class="qris-code-section">
+          <div class="qris-code-image-wrap" id="qrisCodeArea">
+            <img id="qrisImage" src="" data-qris-url={qrisImageUrl} alt="QRIS Code" class="qris-image" style="display:none;" />
+            <div id="qrisPlaceholder" class="qris-placeholder">
+              <div class="qris-scan-icon">📱</div>
+              <p class="qris-scan-text">Scan QR Code dengan aplikasi e-wallet atau mobile banking Anda</p>
+              <div class="qris-apps">
+                <span class="qris-app">GoPay</span>
+                <span class="qris-app">OVO</span>
+                <span class="qris-app">DANA</span>
+                <span class="qris-app">LinkAja</span>
+                <span class="qris-app">ShopeePay</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="qris-instructions">
+          <p>1. Buka aplikasi e-wallet atau mobile banking</p>
+          <p>2. Pilih menu Scan / QRIS</p>
+          <p>3. Arahkan kamera ke QR Code</p>
+          <p>4. Konfirmasi pembayaran</p>
+        </div>
+      </div>
+      <div class="qris-footer">
+        <button class="btn btn-outline" id="qrisCancelBtn">Batal</button>
+        <button class="btn btn-success" id="qrisConfirmBtn" style="font-weight:700;">✅ Sudah Diterima</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Success Notification Toast -->
+  <div id="successToast" class="success-toast" style="display:none;">
+    <div class="toast-content">
+      <div class="toast-icon">✅</div>
+      <div class="toast-data">
+        <strong id="toastTitle">Pembayaran Berhasil!</strong>
+        <span id="toastMessage">Transaksi berhasil diproses</span>
+      </div>
+      <div class="toast-actions">
+        <button class="toast-action-btn" id="toastPrintBtn" title="Cetak Invoice">🖨️</button>
+        <button class="toast-action-btn" id="toastWaBtn" title="Kirim via WhatsApp">📱</button>
+        <button class="toast-action-btn toast-close-btn" id="toastCloseBtn">&times;</button>
+      </div>
+    </div>
+    <!-- Prominent WA send button (shown when phone number is provided) -->
+    <div id="toastWaSendBtn" style="display:none;margin:0 1rem 0.75rem;padding:0.65rem 1rem;background:#25d366;color:white;border-radius:0.65rem;cursor:pointer;font-weight:700;font-size:0.85rem;align-items:center;justify-content:center;gap:0.4rem;" onclick="if(pendingWaUrl){window.open(pendingWaUrl,'_blank');this.style.display='none';}">
+      📱 Kirim Nota via WhatsApp
+    </div>
+    <div class="toast-progress"></div>
+  </div>
+
+  <script is:inline>
     let cart = [];
 
-    function addToCart(id, sku, name, price, stock) {
+    // Use event delegation for add-to-cart buttons
+    document.getElementById('productList').addEventListener('click', function(e) {
+      const btn = e.target.closest('.add-cart-btn');
+      if (!btn) return;
+      const row = btn.closest('.product-row');
+      if (!row) return;
+      addToCart(
+        row.dataset.id,
+        row.dataset.sku,
+        row.dataset.name,
+        parseFloat(row.dataset.price),
+        parseInt(row.dataset.stock),
+        row.dataset.satuan || ''
+      );
+    });
+
+    // Search button
+    document.getElementById('searchBtn').addEventListener('click', searchProduct);
+
+    // Discount input
+    document.getElementById('discountInput').addEventListener('change', updateTotal);
+    document.getElementById('discountInput').addEventListener('input', updateTotal);
+
+    // Checkout button
+    document.getElementById('checkoutBtn').addEventListener('click', startCheckout);
+
+    // QRIS modal buttons
+    document.getElementById('qrisCloseBtn').addEventListener('click', closeQrisModal);
+    document.getElementById('qrisCancelBtn').addEventListener('click', closeQrisModal);
+    document.getElementById('qrisConfirmBtn').addEventListener('click', confirmQrisPayment);
+
+    // Toast buttons
+    document.getElementById('toastPrintBtn').addEventListener('click', function() {
+      if (lastInvoiceUrl) window.open(lastInvoiceUrl, '_blank');
+    });
+    document.getElementById('toastWaBtn').addEventListener('click', function() {
+      if (lastWaMessage) window.open(lastWaMessage, '_blank');
+    });
+    document.getElementById('toastCloseBtn').addEventListener('click', function() {
+      document.getElementById('successToast').style.display = 'none';
+    });
+
+    // Event delegation for cart buttons (fix: global functions not accessible from inline onclick)
+    document.getElementById('cartItems').addEventListener('click', function(e) {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+      const action = btn.dataset.action;
+      const id = btn.dataset.id;
+      if (!action || !id) return;
+      if (action === 'minus') updateQty(id, -1);
+      else if (action === 'plus') updateQty(id, 1);
+      else if (action === 'remove') removeFromCart(id);
+    });
+
+    function addToCart(id, sku, name, price, stock, satuan) {
       const existing = cart.find(c => c.id === id);
       if (existing) {
         if (existing.qty >= stock) { alert('Stock tidak mencukupi!'); return; }
         existing.qty++;
       } else {
-        cart.push({ id, sku, name, price, qty: 1, stock });
+        cart.push({ id, sku, name, price, qty: 1, stock, satuan: satuan || '' });
       }
       renderCart();
     }
@@ -118,6 +357,10 @@ const items = (await db.prepare('SELECT * FROM inventory WHERE stock_saat_ini > 
 
     function renderCart() {
       const container = document.getElementById('cartItems');
+      const countEl = document.getElementById('cartCount');
+      const totalItems = cart.reduce((sum, item) => sum + item.qty, 0);
+      countEl.textContent = totalItems;
+
       if (cart.length === 0) {
         container.innerHTML = '<p style="color:var(--gray-500);text-align:center;padding:2rem;">Keranjang kosong</p>';
         updateTotal();
@@ -127,53 +370,258 @@ const items = (await db.prepare('SELECT * FROM inventory WHERE stock_saat_ini > 
         <div style="display:flex;justify-content:space-between;align-items:center;padding:0.5rem 0;border-bottom:1px solid var(--gray-200);">
           <div style="flex:1;">
             <div style="font-weight:600;font-size:0.85rem;">${item.name}</div>
-            <div style="font-size:0.75rem;color:var(--gray-500);">${item.sku} - ${formatCurrency(item.price)}</div>
+            <div style="font-size:0.75rem;color:var(--gray-500);">${item.sku} - ${formatCurrency(item.price)}<span style="margin-left:0.5rem;color:var(--primary);font-weight:600;">${item.satuan || ''}</span></div>
           </div>
           <div style="display:flex;align-items:center;gap:0.4rem;">
-            <button onclick="updateQty('${item.id}', -1)" style="width:24px;height:24px;border:1px solid var(--gray-300);background:white;border-radius:4px;cursor:pointer;">-</button>
-            <span style="font-weight:600;min-width:24px;text-align:center;">${item.qty}</span>
-            <button onclick="updateQty('${item.id}', 1)" style="width:24px;height:24px;border:1px solid var(--gray-300);background:white;border-radius:4px;cursor:pointer;">+</button>
-            <button onclick="removeFromCart('${item.id}')" style="margin-left:0.5rem;color:var(--danger);background:none;border:none;cursor:pointer;font-size:1rem;">&times;</button>
+            <button data-action="minus" data-id="${item.id}" style="width:26px;height:26px;border:1px solid var(--gray-300);background:white;border-radius:6px;cursor:pointer;font-weight:700;">-</button>
+            <span style="font-weight:700;min-width:28px;text-align:center;">${item.qty}</span>
+            <button data-action="plus" data-id="${item.id}" style="width:26px;height:26px;border:1px solid var(--gray-300);background:white;border-radius:6px;cursor:pointer;font-weight:700;">+</button>
+            <button data-action="remove" data-id="${item.id}" style="margin-left:0.5rem;color:var(--danger);background:none;border:none;cursor:pointer;font-size:1.1rem;">&times;</button>
           </div>
         </div>
       `).join('');
       updateTotal();
     }
 
+    let discountMode = 'rp'; // 'rp' or 'pct'
+
+    function setDiscountMode(mode) {
+      discountMode = mode;
+      const rpBtn = document.getElementById('discModeRp');
+      const pctBtn = document.getElementById('discModePct');
+      const input = document.getElementById('discountInput');
+      
+      if (mode === 'rp') {
+        rpBtn.style.background = 'var(--primary)';
+        rpBtn.style.color = 'white';
+        pctBtn.style.background = 'var(--bg)';
+        pctBtn.style.color = 'var(--text)';
+        input.step = '1';
+        input.placeholder = '';
+      } else {
+        pctBtn.style.background = 'var(--primary)';
+        pctBtn.style.color = 'white';
+        rpBtn.style.background = 'var(--bg)';
+        rpBtn.style.color = 'var(--text)';
+        input.step = '0.01';
+        input.placeholder = '0-100';
+      }
+      updateTotal();
+    }
+
+    function getDiscountAmount(subtotal) {
+      const inputVal = parseFloat(document.getElementById('discountInput').value) || 0;
+      if (discountMode === 'pct') {
+        return Math.min(subtotal, subtotal * (inputVal / 100));
+      }
+      return Math.min(subtotal, inputVal);
+    }
+
     function updateTotal() {
       const subtotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
-      const discount = parseInt(document.getElementById('discountInput').value) || 0;
-      const total = Math.max(0, subtotal - discount);
+      const discountAmt = getDiscountAmount(subtotal);
+      const total = Math.max(0, subtotal - discountAmt);
       document.getElementById('subtotalDisplay').textContent = formatCurrency(subtotal);
       document.getElementById('totalDisplay').textContent = formatCurrency(total);
+      
+      // Update discount info
+      const info = document.getElementById('discountInfo');
+      const inputVal = parseFloat(document.getElementById('discountInput').value) || 0;
+      if (inputVal > 0) {
+        if (discountMode === 'pct') {
+          info.textContent = 'Potongan ' + inputVal + '% = -' + formatCurrency(discountAmt);
+        } else {
+          info.textContent = 'Potongan -' + formatCurrency(discountAmt);
+        }
+      } else {
+        info.textContent = '';
+      }
+    }
+
+    function getTotal() {
+      const subtotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
+      const discountAmt = getDiscountAmount(subtotal);
+      return Math.max(0, subtotal - discountAmt);
+    }
+
+    function getPaymentMethod() {
+      const checked = document.querySelector('input[name="paymentMethod"]:checked');
+      return checked ? checked.value : 'manual';
     }
 
     function formatCurrency(n) {
       return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(n);
     }
 
-    async function checkout() {
+    let lastInvoiceUrl = '';
+    let lastWaMessage = '';
+
+    function startCheckout() {
       if (cart.length === 0) { alert('Keranjang kosong!'); return; }
-      const paymentMethod = document.getElementById('paymentMethod').value;
+      const method = getPaymentMethod();
+      if (method === 'qris') {
+        showQrisModal();
+      } else {
+        processCheckout(method);
+      }
+    }
+
+    function showQrisModal() {
+      const total = getTotal();
+      document.getElementById('qrisAmount').textContent = formatCurrency(total);
+      // Load QRIS image if configured
+      const qrisImg = document.getElementById('qrisImage');
+      const qrisPlaceholder = document.getElementById('qrisPlaceholder');
+      const qrisUrl = document.getElementById('qrisImage').dataset.qrisUrl;
+      if (qrisUrl) {
+        qrisImg.src = qrisUrl;
+        qrisImg.style.display = 'block';
+        qrisPlaceholder.style.display = 'none';
+      } else {
+        qrisImg.style.display = 'none';
+        qrisPlaceholder.style.display = 'block';
+      }
+      document.getElementById('qrisModal').style.display = 'flex';
+    }
+
+    function closeQrisModal() {
+      document.getElementById('qrisModal').style.display = 'none';
+    }
+
+    function confirmQrisPayment() {
+      closeQrisModal();
+      processCheckout('qris');
+    }
+
+    function buildWaMessage(invoiceNo, total, customerName) {
+      const invoiceUrl = window.location.origin + '/invoice/' + invoiceNo;
+      const msg = `📋 *NOTA PEMBELIAN*\n` +
+        `KAY ID TOKO BANGUNAN\n` +
+        `━━━━━━━━━━━━━━━━━━\n` +
+        `No: ${invoiceNo}\n` +
+        `Total: ${formatCurrency(total)}\n` +
+        (customerName ? `Pelanggan: ${customerName}\n` : '') +
+        `━━━━━━━━━━━━━━━━━━\n` +
+        `Lihat nota lengkap:\n${invoiceUrl}\n\n` +
+        `Terima kasih atas pembelian Anda! 🙏`;
+      return 'https://wa.me/?text=' + encodeURIComponent(msg);
+    }
+
+    function showSuccessToast(invoiceNo, total, customerName) {
+      lastInvoiceUrl = '/api/sales/' + invoiceNo + '/pdf';
+      lastWaMessage = buildWaMessage(invoiceNo, total, customerName);
+
+      document.getElementById('toastTitle').textContent = 'Pembayaran Berhasil!';
+      document.getElementById('toastMessage').textContent = invoiceNo + ' — ' + formatCurrency(total);
+      const toast = document.getElementById('successToast');
+      toast.style.display = 'block';
+      // Reset progress animation
+      const progress = toast.querySelector('.toast-progress');
+      progress.style.animation = 'none';
+      progress.offsetHeight; // trigger reflow
+      progress.style.animation = 'toastProgress 8s linear forwards';
+
+      // Auto-hide after 8 seconds
+      setTimeout(function() {
+        toast.style.display = 'none';
+      }, 8000);
+    }
+
+    let pendingWaUrl = '';
+    let toastAutoHideTimer = null;
+
+    // Robust URL opener - tries multiple methods to bypass popup blockers
+    function robustOpen(url) {
+      // Method 1: Create temporary <a> element and click it
+      var a = document.createElement('a');
+      a.href = url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      // Clean up after short delay
+      setTimeout(function() { document.body.removeChild(a); }, 100);
+    }
+
+    async function processCheckout(paymentMethod) {
       const customerName = document.getElementById('customerName').value;
-      const discount = parseInt(document.getElementById('discountInput').value) || 0;
+      const customerPhone = document.getElementById('customerPhone').value.trim();
+      const subtotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
+      const discount = getDiscountAmount(subtotal);
       const notes = document.getElementById('orderNotes').value;
+      const total = getTotal();
 
       const res = await fetch('/api/sales/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items: cart, paymentMethod, customerName, discount, notes })
+        body: JSON.stringify({ items: cart, paymentMethod, customerName, customerPhone, discount, notes })
       });
 
       if (res.ok) {
         const data = await res.json();
+        const invoiceNo = data.invoiceNo;
         cart = [];
         renderCart();
         document.getElementById('discountInput').value = '0';
         document.getElementById('customerName').value = '';
+        document.getElementById('customerPhone').value = '';
         document.getElementById('orderNotes').value = '';
-        window.open(`/api/sales/${data.invoiceNo}/pdf`, '_blank');
-        location.reload();
+
+        // If phone number provided, open WhatsApp
+        if (customerPhone) {
+          const invoiceUrl = window.location.origin + '/invoice/' + invoiceNo;
+          let phone = customerPhone.replace(/^0/, '62').replace(/[^0-9]/g, '');
+          if (!phone.startsWith('62')) phone = '62' + phone;
+
+          const waMsg = `📋 *NOTA PEMBELIAN*\n` +
+            `KAY ID TOKO BANGUNAN\n` +
+            `━━━━━━━━━━━━━━━━━━\n` +
+            `No: ${invoiceNo}\n` +
+            `Total: ${formatCurrency(total)}\n` +
+            (customerName ? `Pelanggan: ${customerName}\n` : '') +
+            `━━━━━━━━━━━━━━━━━━\n` +
+            `Lihat nota lengkap:\n${invoiceUrl}\n\n` +
+            `Terima kasih atas pembelian Anda! 🙏`;
+
+          pendingWaUrl = 'https://web.whatsapp.com/send?phone=' + phone + '&text=' + encodeURIComponent(waMsg);
+
+          // Show toast
+          showSuccessToast(invoiceNo, total, customerName);
+          document.getElementById('toastMessage').textContent = invoiceNo + ' — WhatsApp terbuka, kirim pesan!';
+
+          // Set up print button in toast
+          var pdfUrl = '/api/sales/' + invoiceNo + '/pdf';
+          var printBtn = document.getElementById('toastPrintBtn');
+          if (printBtn) {
+            printBtn.onclick = function() { robustOpen(pdfUrl); };
+          }
+
+          // Show prominent WA button as fallback
+          var waBtn = document.getElementById('toastWaSendBtn');
+          if (waBtn) {
+            waBtn.style.display = 'flex';
+            waBtn.textContent = '📱 Kirim Nota ke ' + customerPhone;
+          }
+
+          // Try to auto-open WhatsApp with robust method
+          robustOpen(pendingWaUrl);
+
+          // Make toast stay longer
+          var toast = document.getElementById('successToast');
+          var progress = toast.querySelector('.toast-progress');
+          progress.style.animation = 'none';
+          progress.offsetHeight;
+          progress.style.animation = 'toastProgress 30s linear forwards';
+          clearTimeout(toastAutoHideTimer);
+          toastAutoHideTimer = setTimeout(function() {
+            toast.style.display = 'none';
+          }, 30000);
+        } else {
+          // No phone number - open invoice page
+          showSuccessToast(invoiceNo, total, customerName);
+          robustOpen('/invoice/' + invoiceNo);
+        }
       } else {
         const err = await res.text();
         alert('Gagal: ' + err);
@@ -197,7 +645,7 @@ const items = (await db.prepare('SELECT * FROM inventory WHERE stock_saat_ini > 
         const rows = document.querySelectorAll('#productList tr');
         for (const row of rows) {
           if (row.dataset.sku?.toLowerCase() === q.toLowerCase() || row.dataset.name?.toLowerCase().includes(q.toLowerCase())) {
-            addToCart(row.dataset.id, row.dataset.sku, row.dataset.name, parseFloat(row.dataset.price), parseInt(row.dataset.stock));
+            addToCart(row.dataset.id, row.dataset.sku, row.dataset.name, parseFloat(row.dataset.price), parseInt(row.dataset.stock), row.dataset.satuan || '');
             this.value = '';
             return;
           }
@@ -206,4 +654,390 @@ const items = (await db.prepare('SELECT * FROM inventory WHERE stock_saat_ini > 
       }
     });
   </script>
+
+  <style>
+    /* === LAYOUT === */
+    .pos-layout {
+      display: grid;
+      grid-template-columns: 1.5fr 1fr;
+      gap: 1rem;
+    }
+
+    /* === TODAY SUMMARY === */
+    .today-summary {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    .ts-item {
+      background: white;
+      border-radius: 0.75rem;
+      padding: 1rem 1.25rem;
+      display: flex;
+      align-items: center;
+      gap: 0.85rem;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+      border: 1px solid var(--gray-200);
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .ts-item:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 18px rgba(0,0,0,0.1);
+    }
+    .ts-icon {
+      width: 42px; height: 42px;
+      border-radius: 0.65rem;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.3rem;
+      background: linear-gradient(135deg, #e0e7ff, #c7d2fe);
+      flex-shrink: 0;
+    }
+    .ts-data { display: flex; flex-direction: column; }
+    .ts-label { font-size: 0.72rem; color: var(--gray-500); font-weight: 500; }
+    .ts-value { font-size: 1.15rem; font-weight: 700; color: var(--gray-900); line-height: 1.2; }
+    .ts-link { display: flex; align-items: center; gap: 0.85rem; text-decoration: none; }
+    .ts-link:hover .ts-value { color: var(--primary); }
+
+    /* === CART COUNT BADGE === */
+    .cart-count {
+      background: var(--primary);
+      color: white;
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      min-width: 22px;
+      text-align: center;
+    }
+
+    /* === PAYMENT OPTIONS === */
+    .payment-options {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    .payment-option {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      padding: 0.65rem 0.85rem;
+      border: 1.5px solid var(--gray-200);
+      border-radius: 0.65rem;
+      cursor: pointer;
+      transition: all 0.15s;
+      background: white;
+    }
+    .payment-option:hover {
+      border-color: var(--primary);
+      background: #f0f7ff;
+    }
+    .payment-option input[type="radio"] {
+      display: none;
+    }
+    .payment-option input[type="radio"]:checked + .payment-radio {
+      border-color: var(--primary);
+      background: var(--primary);
+    }
+    .payment-option input[type="radio"]:checked + .payment-radio::after {
+      content: '';
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: white;
+    }
+    .payment-option input[type="radio"]:checked ~ .payment-label {
+      color: var(--primary);
+      font-weight: 600;
+    }
+    .payment-radio {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      border: 2px solid var(--gray-300);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: all 0.15s;
+    }
+    .payment-label {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.85rem;
+      font-weight: 500;
+    }
+    .payment-emoji { font-size: 1.1rem; }
+
+    /* === ADD TO CART BUTTON === */
+    .add-cart-btn {
+      white-space: nowrap;
+    }
+    .product-row {
+      cursor: pointer;
+    }
+    .product-row:hover {
+      background: #f0f7ff !important;
+    }
+
+    /* === QRIS MODAL === */
+    .qris-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      align-items: center;
+      justify-content: center;
+    }
+    .qris-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,0.6);
+      backdrop-filter: blur(4px);
+    }
+    .qris-dialog {
+      position: relative;
+      background: white;
+      border-radius: 1.25rem;
+      width: 440px;
+      max-width: 92vw;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 25px 60px rgba(0,0,0,0.3);
+      animation: qrisSlideIn 0.3s ease;
+    }
+    @keyframes qrisSlideIn {
+      from { opacity: 0; transform: translateY(30px) scale(0.95); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .qris-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1.25rem 1.5rem;
+      border-bottom: 1px solid var(--gray-100);
+      background: linear-gradient(135deg, #0f172a, #1e293b);
+      border-radius: 1.25rem 1.25rem 0 0;
+      color: white;
+    }
+    .qris-brand {
+      display: flex;
+      flex-direction: column;
+    }
+    .qris-logo {
+      background: linear-gradient(135deg, #e11d48, #f43f5e);
+      color: white;
+      font-size: 0.85rem;
+      font-weight: 800;
+      padding: 0.3rem 0.7rem;
+      border-radius: 0.5rem;
+      letter-spacing: 1px;
+      display: inline-block;
+      width: fit-content;
+    }
+    .qris-brand-text {
+      font-size: 0.7rem;
+      color: rgba(255,255,255,0.7);
+      margin-top: 0.25rem;
+      font-weight: 500;
+    }
+    .qris-close {
+      background: rgba(255,255,255,0.1);
+      border: none;
+      color: white;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      font-size: 1.3rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s;
+    }
+    .qris-close:hover { background: rgba(255,255,255,0.2); }
+    .qris-body { padding: 1.5rem; }
+    .qris-amount-section {
+      text-align: center;
+      margin-bottom: 1.25rem;
+      padding: 1rem;
+      background: linear-gradient(135deg, #f0fdf4, #dcfce7);
+      border-radius: 0.85rem;
+      border: 1px solid #bbf7d0;
+    }
+    .qris-amount-label {
+      display: block;
+      font-size: 0.78rem;
+      color: var(--gray-500);
+      font-weight: 500;
+      margin-bottom: 0.25rem;
+    }
+    .qris-amount-value {
+      display: block;
+      font-size: 1.75rem;
+      font-weight: 800;
+      color: var(--success);
+      letter-spacing: -0.02em;
+    }
+    .qris-code-section { margin-bottom: 1.25rem; }
+    .qris-code-placeholder {
+      background: var(--gray-50);
+      border: 2px dashed var(--gray-300);
+      border-radius: 1rem;
+      padding: 2rem 1.5rem;
+      text-align: center;
+    }
+    .qris-scan-icon { font-size: 3rem; margin-bottom: 0.75rem; }
+    .qris-scan-text {
+      font-size: 0.85rem;
+      color: var(--gray-500);
+      margin-bottom: 1rem;
+      line-height: 1.5;
+    }
+    .qris-apps {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      justify-content: center;
+    }
+    .qris-app {
+      background: white;
+      border: 1px solid var(--gray-200);
+      padding: 0.3rem 0.65rem;
+      border-radius: 999px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      color: var(--gray-600);
+    }
+    .qris-instructions {
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      border-radius: 0.75rem;
+      padding: 1rem 1.25rem;
+    }
+    .qris-instructions p {
+      font-size: 0.78rem;
+      color: #92400e;
+      margin: 0.3rem 0;
+      line-height: 1.5;
+    }
+    .qris-footer {
+      display: flex;
+      gap: 0.75rem;
+      padding: 1rem 1.5rem;
+      border-top: 1px solid var(--gray-100);
+      background: var(--gray-50);
+      border-radius: 0 0 1.25rem 1.25rem;
+    }
+    .qris-footer .btn { flex: 1; justify-content: center; padding: 0.7rem; }
+
+    /* === QRIS IMAGE === */
+    .qris-code-image-wrap {
+      background: var(--gray-50);
+      border: 2px dashed var(--gray-300);
+      border-radius: 1rem;
+      padding: 1.5rem;
+      text-align: center;
+    }
+    .qris-image {
+      max-width: 250px;
+      width: 100%;
+      height: auto;
+      border-radius: 0.5rem;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+    .qris-placeholder {
+      padding: 1rem 0;
+    }
+
+    /* === SUCCESS TOAST === */
+    .success-toast {
+      position: fixed;
+      bottom: 2rem;
+      right: 2rem;
+      z-index: 9999;
+      background: white;
+      border-radius: 1rem;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.15);
+      border: 1px solid var(--gray-200);
+      overflow: hidden;
+      animation: slideInRight 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+      max-width: 420px;
+      min-width: 320px;
+    }
+    @keyframes slideInRight {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    .toast-content {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 1rem 1.25rem;
+    }
+    .toast-icon {
+      font-size: 1.5rem;
+      flex-shrink: 0;
+    }
+    .toast-data {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+    }
+    .toast-data strong {
+      font-size: 0.9rem;
+      color: var(--text-primary);
+    }
+    .toast-data span {
+      font-size: 0.78rem;
+      color: var(--gray-500);
+    }
+    .toast-actions {
+      display: flex;
+      gap: 0.4rem;
+      align-items: center;
+    }
+    .toast-action-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      border: 1px solid var(--gray-200);
+      background: white;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1rem;
+      transition: all 0.15s;
+    }
+    .toast-action-btn:hover {
+      background: var(--primary-light);
+      border-color: var(--primary);
+    }
+    .toast-close-btn {
+      background: var(--gray-50);
+    }
+    .toast-close-btn:hover {
+      background: var(--gray-200);
+    }
+    .toast-progress {
+      height: 3px;
+      background: linear-gradient(90deg, var(--success), var(--primary));
+      animation: toastProgress 8s linear forwards;
+    }
+    @keyframes toastProgress {
+      from { width: 100%; }
+      to { width: 0%; }
+    }
+
+    /* === RESPONSIVE === */
+    @media (max-width: 1024px) {
+      .pos-layout { grid-template-columns: 1fr; }
+      .today-summary { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 768px) {
+      .today-summary { grid-template-columns: 1fr; }
+    }
+  </style>
 </Layout>

@@ -14,19 +14,40 @@ const dateFrom = url.searchParams.get('from') || new Date().toISOString().split(
 const dateTo = url.searchParams.get('to') || new Date().toISOString().split('T')[0];
 
 let dateFilter = '';
+let dateFilterAlias = '';
+let periodLabel = '';
+
 if (period === 'daily') {
   dateFilter = `AND tanggal = '${dateFrom}'`;
+  dateFilterAlias = `AND s.tanggal = '${dateFrom}'`;
+  periodLabel = formatDate(dateFrom);
 } else if (period === 'weekly') {
-  dateFilter = `AND tanggal BETWEEN date('${dateFrom}', '-6 days') AND '${dateFrom}'`;
+  const d = new Date(dateFrom);
+  const dayOfWeek = d.getDay();
+  const diff = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+  const startOfWeek = new Date(d);
+  startOfWeek.setDate(d.getDate() - diff);
+  const endOfWeek = new Date(startOfWeek);
+  endOfWeek.setDate(startOfWeek.getDate() + 6);
+  const startStr = startOfWeek.toISOString().split('T')[0];
+  const endStr = endOfWeek.toISOString().split('T')[0];
+  dateFilter = `AND tanggal BETWEEN '${startStr}' AND '${endStr}'`;
+  dateFilterAlias = `AND s.tanggal BETWEEN '${startStr}' AND '${endStr}'`;
+  periodLabel = `${formatDate(startStr)} - ${formatDate(endStr)}`;
 } else if (period === 'monthly') {
   const ym = dateFrom.substring(0, 7);
-  dateFilter = `AND tanggal LIKE '${ym}%'`;
-} else {
+  dateFilter = `AND strftime('%Y-%m', tanggal) = '${ym}'`;
+  dateFilterAlias = `AND strftime('%Y-%m', s.tanggal) = '${ym}'`;
+  const [y, m] = ym.split('-');
+  const monthNames = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+  periodLabel = `${monthNames[parseInt(m)-1]} ${y}`;
+} else if (period === 'custom') {
   dateFilter = `AND tanggal BETWEEN '${dateFrom}' AND '${dateTo}'`;
+  dateFilterAlias = `AND s.tanggal BETWEEN '${dateFrom}' AND '${dateTo}'`;
+  periodLabel = `${formatDate(dateFrom)} - ${formatDate(dateTo)}`;
 }
 
-const sales = (await db.prepare(`SELECT * FROM sales WHERE 1=1 ${dateFilter} ORDER BY tanggal DESC, created_at DESC`).all()).results as any[];
-
+// Summary
 const summary = await db.prepare(`
   SELECT
     COUNT(*) as total_transactions,
@@ -36,110 +57,464 @@ const summary = await db.prepare(`
   FROM sales WHERE 1=1 ${dateFilter}
 `).first() as any;
 
+// COGS & Profit
+const profitData = await db.prepare(`
+  SELECT 
+    COALESCE(SUM(si.harga_beli * si.qty), 0) as total_cogs
+  FROM sales_items si JOIN sales s ON si.sale_id = s.id
+  WHERE 1=1 ${dateFilterAlias}
+`).first() as any;
+
+const totalCOGS = profitData?.total_cogs || 0;
+const totalRevenue = summary?.total_revenue || 0;
+const totalProfit = totalRevenue - totalCOGS;
+const profitMargin = totalRevenue > 0 ? ((totalProfit / totalRevenue) * 100).toFixed(1) : '0';
+
+// Top Products
+const topProducts = (await db.prepare(`
+  SELECT si.sku, si.nama_barang, 
+    SUM(si.qty) as qty_sold, 
+    SUM(si.subtotal) as revenue,
+    SUM(COALESCE(si.harga_beli, 0) * si.qty) as cogs,
+    SUM((si.harga_satuan - COALESCE(si.harga_beli, 0)) * si.qty) as profit
+  FROM sales_items si JOIN sales s ON si.sale_id = s.id
+  WHERE 1=1 ${dateFilterAlias}
+  GROUP BY si.sku ORDER BY qty_sold DESC LIMIT 10
+`).all()).results as any[];
+
+// Bottom Products (least sold)
+const bottomProducts = (await db.prepare(`
+  SELECT si.sku, si.nama_barang, 
+    SUM(si.qty) as qty_sold, 
+    SUM(si.subtotal) as revenue
+  FROM sales_items si JOIN sales s ON si.sale_id = s.id
+  WHERE 1=1 ${dateFilterAlias}
+  GROUP BY si.sku ORDER BY qty_sold ASC LIMIT 5
+`).all()).results as any[];
+
+// Category breakdown
+const categoryBreakdown = (await db.prepare(`
+  SELECT COALESCE(i.kategori, 'Lainnya') as kategori,
+    COUNT(DISTINCT si.sku) as products,
+    SUM(si.qty) as qty_sold,
+    SUM(si.subtotal) as revenue
+  FROM sales_items si 
+  JOIN sales s ON si.sale_id = s.id
+  LEFT JOIN inventory i ON si.sku = i.sku
+  WHERE 1=1 ${dateFilterAlias}
+  GROUP BY kategori ORDER BY revenue DESC
+`).all()).results as any[];
+
+// Daily breakdown
+const dailyBreakdown = (await db.prepare(`
+  SELECT tanggal, COUNT(*) as transactions,
+    COALESCE(SUM(total), 0) as revenue,
+    COALESCE(SUM(discount), 0) as discount
+  FROM sales WHERE 1=1 ${dateFilter}
+  GROUP BY tanggal ORDER BY tanggal DESC
+`).all()).results as any[];
+
+// Payment breakdown
 const paymentBreakdown = (await db.prepare(`
   SELECT payment_method, COUNT(*) as cnt, COALESCE(SUM(total), 0) as total
   FROM sales WHERE 1=1 ${dateFilter}
   GROUP BY payment_method
 `).all()).results as any[];
+
+// Hourly pattern (peak hours)
+const hourlyPattern = (await db.prepare(`
+  SELECT CAST(strftime('%H', created_at) AS INTEGER) as jam,
+    COUNT(*) as transactions,
+    COALESCE(SUM(total), 0) as revenue
+  FROM sales WHERE 1=1 ${dateFilter}
+  GROUP BY jam ORDER BY jam
+`).all()).results as any[];
+
+// Total items sold
+const totalItemsSold = (await db.prepare(`
+  SELECT COALESCE(SUM(si.qty), 0) as total_qty,
+    COUNT(DISTINCT si.sku) as unique_products
+  FROM sales_items si JOIN sales s ON si.sale_id = s.id
+  WHERE 1=1 ${dateFilterAlias}
+`).first()) as any;
+
+const sales = (await db.prepare(`SELECT * FROM sales WHERE 1=1 ${dateFilter} ORDER BY tanggal DESC, created_at DESC`).all()).results as any[];
 ---
 
-<Layout title="Laporan" user={user} activePage="/reports">
+<Layout title="Laporan & Analisis" user={user} activePage="/reports">
   <div class="page-header">
-    <h1>Laporan Keuangan</h1>
+    <div>
+      <h1>📊 Laporan & Analisis</h1>
+      <p style="color:var(--gray-500);font-size:0.85rem;margin-top:0.25rem;">Periode: {periodLabel}</p>
+    </div>
     <div class="flex gap-1">
-      <a href={`/api/reports/pdf?period=${period}&from=${dateFrom}&to=${dateTo}`} class="btn btn-danger" target="_blank">Export PDF</a>
+      <a href={`/api/reports/pdf?period=${period}&from=${dateFrom}&to=${dateTo}`} class="btn btn-danger" target="_blank">📄 Export PDF</a>
     </div>
   </div>
 
   <!-- Filters -->
   <div class="card mb-2">
-    <form method="GET" style="display:flex;gap:0.75rem;align-items:flex-end;flex-wrap:wrap;">
+    <form method="GET" style="display:flex;gap:0.75rem;align-items:flex-end;flex-wrap:wrap;" id="periodForm">
       <div class="form-group" style="margin:0;">
         <label>Periode</label>
-        <select name="period" class="form-control" style="width:160px;">
-          <option value="daily" selected={period === 'daily'}>Harian</option>
-          <option value="weekly" selected={period === 'weekly'}>Mingguan</option>
-          <option value="monthly" selected={period === 'monthly'}>Bulanan</option>
-          <option value="custom" selected={period === 'custom'}>Custom</option>
+        <select name="period" class="form-control" style="width:160px;" onchange="updateDateInput()" id="periodSelect">
+          <option value="daily" selected={period === 'daily'}>📅 Harian</option>
+          <option value="weekly" selected={period === 'weekly'}>📆 Mingguan</option>
+          <option value="monthly" selected={period === 'monthly'}>🗓️ Bulanan</option>
+          <option value="custom" selected={period === 'custom'}>🔧 Custom</option>
         </select>
       </div>
-      <div class="form-group" style="margin:0;">
-        <label>Dari Tanggal</label>
-        <input type="date" name="from" class="form-control" value={dateFrom} style="width:180px;" />
+      <div class="form-group" style="margin:0;" id="singleDateGroup">
+        <label id="dateLabel">{period === 'monthly' ? 'Bulan' : 'Tanggal'}</label>
+        <input type={period === 'monthly' ? 'month' : 'date'} name="from" id="dateInput" class="form-control" value={period === 'monthly' ? dateFrom.substring(0,7) : dateFrom} style="width:180px;" />
       </div>
-      {period === 'custom' && (
-        <div class="form-group" style="margin:0;">
-          <label>Sampai Tanggal</label>
-          <input type="date" name="to" class="form-control" value={dateTo} style="width:180px;" />
-        </div>
-      )}
-      <button type="submit" class="btn btn-primary">Filter</button>
+      <div class="form-group" style="margin:0;display:{period === 'custom' ? 'block' : 'none'};" id="customDateGroup">
+        <label>Dari Tanggal</label>
+        <input type="date" name="from" id="startDateInput" class="form-control" value={period === 'custom' ? dateFrom : ''} style="width:180px;" />
+      </div>
+      <div class="form-group" style="margin:0;display:{period === 'custom' ? 'block' : 'none'};" id="customDateGroup2">
+        <label>Sampai Tanggal</label>
+        <input type="date" name="to" id="endDateInput" class="form-control" value={dateTo} style="width:180px;" />
+      </div>
+      <button type="submit" class="btn btn-primary">🔍 Filter</button>
     </form>
   </div>
 
   <!-- Summary Cards -->
-  <div class="grid-4 mb-2">
-    <div class="stat-card">
-      <div class="stat-label">Total Transaksi</div>
-      <div class="stat-value">{summary?.total_transactions || 0}</div>
+  <div class="summary-grid mb-2">
+    <div class="summary-card sc-blue">
+      <div class="sc-icon">🧾</div>
+      <div class="sc-data">
+        <span class="sc-label">Total Transaksi</span>
+        <span class="sc-value">{summary?.total_transactions || 0}</span>
+        <span class="sc-sub">{totalItemsSold?.total_qty || 0} barang terjual</span>
+      </div>
     </div>
-    <div class="stat-card">
-      <div class="stat-label">Total Pendapatan</div>
-      <div class="stat-value" style="font-size:1.1rem;">{formatCurrency(summary?.total_revenue || 0)}</div>
+    <div class="summary-card sc-green">
+      <div class="sc-icon">💰</div>
+      <div class="sc-data">
+        <span class="sc-label">Total Pendapatan</span>
+        <span class="sc-value">{formatCurrency(totalRevenue)}</span>
+        <span class="sc-sub">Diskon: {formatCurrency(summary?.total_discount || 0)}</span>
+      </div>
     </div>
-    <div class="stat-card">
-      <div class="stat-label">Total Diskon</div>
-      <div class="stat-value" style="font-size:1.1rem;color:var(--warning);">{formatCurrency(summary?.total_discount || 0)}</div>
+    <div class="summary-card sc-orange">
+      <div class="sc-icon">📦</div>
+      <div class="sc-data">
+        <span class="sc-label">Total Modal</span>
+        <span class="sc-value">{formatCurrency(totalCOGS)}</span>
+        <span class="sc-sub">{totalItemsSold?.unique_products || 0} produk berbeda</span>
+      </div>
     </div>
-    <div class="stat-card">
-      <div class="stat-label">Rata-rata per Transaksi</div>
-      <div class="stat-value" style="font-size:1.1rem;">{formatCurrency(summary?.total_transactions > 0 ? (summary?.total_revenue || 0) / summary.total_transactions : 0)}</div>
+    <div class="summary-card sc-emerald">
+      <div class="sc-icon">💹</div>
+      <div class="sc-data">
+        <span class="sc-label">Keuntungan Bersih</span>
+        <span class="sc-value">{formatCurrency(totalProfit)}</span>
+        <span class="sc-sub">Margin: {profitMargin}%</span>
+      </div>
     </div>
   </div>
 
-  <!-- Payment Breakdown -->
-  <div class="card mb-2">
-    <h3 style="margin-bottom:1rem;">Breakdown Metode Pembayaran</h3>
-    <div class="grid-3">
-      {paymentBreakdown.map((p: any) => (
-        <div class="stat-card">
-          <div class="stat-label">{p.payment_method === 'manual' ? 'Tunai' : p.payment_method === 'qris' ? 'QRIS' : 'Transfer'}</div>
-          <div class="stat-value" style="font-size:1.1rem;">{formatCurrency(p.total)}</div>
-          <div class="stat-sub">{p.cnt} transaksi</div>
+  <!-- Top Products & Category -->
+  <div class="grid-2 mb-2">
+    <!-- Top Products -->
+    <div class="card">
+      <h3 style="margin-bottom:0.75rem;font-size:0.95rem;">🏆 Produk Terlaris</h3>
+      {topProducts.length > 0 ? (
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>#</th><th>Produk</th><th>Terjual</th><th>Pendapatan</th><th>Profit</th></tr></thead>
+            <tbody>
+              {topProducts.map((p: any, i: number) => (
+                <tr>
+                  <td><span class="rank-badge">{i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i+1}`}</span></td>
+                  <td><strong>{p.nama_barang}</strong><br/><code style="font-size:0.65rem;color:var(--gray-500);">{p.sku}</code></td>
+                  <td><strong>{p.qty_sold}</strong> unit</td>
+                  <td>{formatCurrency(p.revenue)}</td>
+                  <td style="color:var(--success);font-weight:600;">{formatCurrency(p.profit)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-      ))}
-      {paymentBreakdown.length === 0 && (
-        <p style="color:var(--gray-500);">Tidak ada data untuk periode ini.</p>
+      ) : (
+        <p style="color:var(--gray-500);padding:1rem 0;">Tidak ada data produk</p>
+      )}
+    </div>
+
+    <!-- Category Breakdown -->
+    <div class="card">
+      <h3 style="margin-bottom:0.75rem;font-size:0.95rem;">📂 Penjualan per Kategori</h3>
+      {categoryBreakdown.length > 0 ? (
+        <div class="category-list">
+          {categoryBreakdown.map((c: any) => {
+            const pct = totalRevenue > 0 ? ((c.revenue / totalRevenue) * 100).toFixed(1) : '0';
+            return (
+              <div class="cat-item">
+                <div class="cat-header">
+                  <strong>{c.kategori}</strong>
+                  <span class="cat-pct">{pct}%</span>
+                </div>
+                <div class="cat-bar-wrap">
+                  <div class="cat-bar" style="width:{pct}%"></div>
+                </div>
+                <div class="cat-detail">
+                  <span>{c.products} produk</span>
+                  <span>{c.qty_sold} unit</span>
+                  <span style="font-weight:700;">{formatCurrency(c.revenue)}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <p style="color:var(--gray-500);padding:1rem 0;">Tidak ada data kategori</p>
       )}
     </div>
   </div>
 
-  <!-- Sales Table -->
+  <!-- Daily Breakdown -->
+  {dailyBreakdown.length > 0 && (
+    <div class="card mb-2">
+      <h3 style="margin-bottom:0.75rem;font-size:0.95rem;">📈 Rekap Harian</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Tanggal</th><th>Transaksi</th><th>Pendapatan</th><th>Diskon</th><th>Rata-rata</th><th>Visual</th></tr>
+          </thead>
+          <tbody>
+            {dailyBreakdown.map((d: any) => {
+              const maxRev = Math.max(...dailyBreakdown.map((x: any) => x.revenue));
+              const barPct = maxRev > 0 ? ((d.revenue / maxRev) * 100).toFixed(0) : '0';
+              return (
+                <tr>
+                  <td><strong>{formatDate(d.tanggal)}</strong></td>
+                  <td>{d.transactions}x</td>
+                  <td style="font-weight:700;">{formatCurrency(d.revenue)}</td>
+                  <td style="color:var(--warning);">{formatCurrency(d.discount)}</td>
+                  <td>{formatCurrency(d.transactions > 0 ? d.revenue / d.transactions : 0)}</td>
+                  <td style="width:120px;">
+                    <div style="background:var(--gray-100);border-radius:4px;height:16px;overflow:hidden;">
+                      <div style="background:linear-gradient(90deg,var(--primary),var(--primary-light));height:100%;width:{barPct}%;border-radius:4px;transition:width 0.3s;"></div>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )}
+
+  <!-- Peak Hours & Payment -->
+  <div class="grid-2 mb-2">
+    <!-- Peak Hours -->
+    {hourlyPattern.length > 0 && (
+      <div class="card">
+        <h3 style="margin-bottom:0.75rem;font-size:0.95rem;">⏰ Jam Ramai</h3>
+        <div class="hourly-grid">
+          {hourlyPattern.map((h: any) => {
+            const maxT = Math.max(...hourlyPattern.map((x: any) => x.transactions));
+            const intensity = maxT > 0 ? (h.transactions / maxT) : 0;
+            return (
+              <div class="hourly-bar" style="opacity:{0.3 + intensity * 0.7}">
+                <div class="hourly-count">{h.transactions}x</div>
+                <div class="hourly-label">{String(h.jam).padStart(2,'0')}:00</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    )}
+
+    <!-- Payment -->
+    <div class="card">
+      <h3 style="margin-bottom:0.75rem;font-size:0.95rem;">💳 Metode Pembayaran</h3>
+      {paymentBreakdown.length > 0 ? (
+        <div class="payment-list">
+          {paymentBreakdown.map((p: any) => {
+            const pct = totalRevenue > 0 ? ((p.total / totalRevenue) * 100).toFixed(1) : '0';
+            return (
+              <div class="pay-item">
+                <div class="pay-header">
+                  <span class="pay-badge pay-{p.payment_method}">{p.payment_method === 'manual' ? '💵 Tunai' : p.payment_method === 'qris' ? '📱 QRIS' : '🏦 Transfer'}</span>
+                  <span style="font-weight:700;">{formatCurrency(p.total)}</span>
+                </div>
+                <div class="pay-bar-wrap">
+                  <div class="pay-bar pay-bar-{p.payment_method}" style="width:{pct}%"></div>
+                </div>
+                <div style="font-size:0.7rem;color:var(--gray-500);">{p.cnt} transaksi ({pct}%)</div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <p style="color:var(--gray-500);">Tidak ada data</p>
+      )}
+    </div>
+  </div>
+
+  <!-- Bottom Products -->
+  {bottomProducts.length > 0 && (
+    <div class="card mb-2">
+      <h3 style="margin-bottom:0.75rem;font-size:0.95rem;">📉 Produk Paling Sepi</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>SKU</th><th>Produk</th><th>Terjual</th><th>Pendapatan</th></tr></thead>
+          <tbody>
+            {bottomProducts.map((p: any) => (
+              <tr>
+                <td><code>{p.sku}</code></td>
+                <td>{p.nama_barang}</td>
+                <td>{p.qty_sold} unit</td>
+                <td>{formatCurrency(p.revenue)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )}
+
+  <!-- Transaction Detail -->
   <div class="card">
-    <h3 style="margin-bottom:1rem;">Detail Transaksi</h3>
+    <h3 style="margin-bottom:0.75rem;font-size:0.95rem;">📋 Detail Transaksi</h3>
     <div class="table-wrap">
       <table>
         <thead>
-          <tr><th>Invoice</th><th>Tanggal</th><th>Items</th><th>Subtotal</th><th>Diskon</th><th>Total</th><th>Pembayaran</th><th>Pelanggan</th></tr>
+          <tr><th>Invoice</th><th>Tanggal</th><th>Items</th><th>Pelanggan</th><th>Bayar</th><th>Total</th><th>Aksi</th></tr>
         </thead>
         <tbody>
           {sales.map((s: any) => (
             <tr>
               <td><strong>{s.invoice_no}</strong></td>
-              <td>{s.tanggal}</td>
+              <td>{formatDate(s.tanggal)}</td>
               <td>{s.total_items}</td>
-              <td>{formatCurrency(s.subtotal)}</td>
-              <td>{formatCurrency(s.discount)}</td>
-              <td><strong>{formatCurrency(s.total)}</strong></td>
-              <td><span class={`badge ${s.payment_method === 'manual' ? 'badge-success' : s.payment_method === 'qris' ? 'badge-info' : 'badge-warning'}`}>{s.payment_method === 'manual' ? 'Tunai' : s.payment_method === 'qris' ? 'QRIS' : 'Transfer'}</span></td>
               <td>{s.customer_name || '-'}</td>
+              <td><span class={`badge ${s.payment_method === 'manual' ? 'badge-success' : s.payment_method === 'qris' ? 'badge-info' : 'badge-warning'}`}>{s.payment_method === 'manual' ? 'Tunai' : s.payment_method === 'qris' ? 'QRIS' : 'Transfer'}</span></td>
+              <td><strong>{formatCurrency(s.total)}</strong></td>
+              <td><a href={`/invoice/${s.invoice_no}`} target="_blank" class="btn btn-sm btn-outline">Lihat</a></td>
             </tr>
           ))}
           {sales.length === 0 && (
-            <tr><td colspan="8" class="text-center" style="padding:2rem;color:var(--gray-500);">Tidak ada transaksi untuk periode ini</td></tr>
+            <tr><td colspan="7" class="text-center" style="padding:2rem;color:var(--gray-500);">Tidak ada transaksi untuk periode ini</td></tr>
           )}
         </tbody>
       </table>
     </div>
   </div>
+
+  <script>
+    function updateDateInput() {
+      const period = document.getElementById('periodSelect').value;
+      const singleDateGroup = document.getElementById('singleDateGroup');
+      const customDateGroup = document.getElementById('customDateGroup');
+      const customDateGroup2 = document.getElementById('customDateGroup2');
+      const dateInput = document.getElementById('dateInput');
+      const dateLabel = document.getElementById('dateLabel');
+      
+      if (period === 'custom') {
+        singleDateGroup.style.display = 'none';
+        customDateGroup.style.display = 'block';
+        customDateGroup2.style.display = 'block';
+      } else {
+        singleDateGroup.style.display = 'block';
+        customDateGroup.style.display = 'none';
+        customDateGroup2.style.display = 'none';
+        
+        if (period === 'monthly') {
+          dateInput.type = 'month';
+          dateLabel.textContent = 'Bulan';
+        } else {
+          dateInput.type = 'date';
+          dateLabel.textContent = 'Tanggal';
+        }
+      }
+    }
+  </script>
+
+  <style>
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1rem;
+    }
+    .summary-card {
+      background: white;
+      border-radius: 1rem;
+      padding: 1.25rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.06);
+      border: 1px solid var(--gray-200);
+      transition: transform 0.15s;
+    }
+    .summary-card:hover { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(0,0,0,0.1); }
+    .sc-icon {
+      width: 48px; height: 48px;
+      border-radius: 0.75rem;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.4rem;
+      flex-shrink: 0;
+    }
+    .sc-blue .sc-icon { background: linear-gradient(135deg, #dbeafe, #bfdbfe); }
+    .sc-green .sc-icon { background: linear-gradient(135deg, #d1fae5, #a7f3d0); }
+    .sc-orange .sc-icon { background: linear-gradient(135deg, #fef3c7, #fde68a); }
+    .sc-emerald .sc-icon { background: linear-gradient(135deg, #a7f3d0, #6ee7b7); }
+    .sc-data { display: flex; flex-direction: column; }
+    .sc-label { font-size: 0.75rem; color: var(--gray-500); font-weight: 500; }
+    .sc-value { font-size: 1.35rem; font-weight: 800; color: var(--gray-900); line-height: 1.2; }
+    .sc-sub { font-size: 0.7rem; color: var(--gray-500); margin-top: 0.15rem; }
+
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+
+    .rank-badge { font-size: 1.1rem; }
+
+    /* Category bars */
+    .category-list { display: flex; flex-direction: column; gap: 0.75rem; }
+    .cat-item { }
+    .cat-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem; }
+    .cat-pct { font-size: 0.8rem; font-weight: 700; color: var(--primary); }
+    .cat-bar-wrap { background: var(--gray-100); border-radius: 6px; height: 10px; overflow: hidden; margin-bottom: 0.25rem; }
+    .cat-bar { background: linear-gradient(90deg, var(--primary), #818cf8); height: 100%; border-radius: 6px; transition: width 0.5s; }
+    .cat-detail { display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--gray-500); }
+
+    /* Hourly pattern */
+    .hourly-grid { display: flex; gap: 4px; align-items: flex-end; flex-wrap: wrap; min-height: 80px; }
+    .hourly-bar {
+      flex: 1; min-width: 28px;
+      background: linear-gradient(180deg, var(--primary), var(--primary-light));
+      border-radius: 4px 4px 0 0;
+      text-align: center;
+      padding: 4px 2px;
+      transition: opacity 0.3s;
+    }
+    .hourly-count { font-size: 0.65rem; font-weight: 700; color: var(--gray-700); }
+    .hourly-label { font-size: 0.6rem; color: var(--gray-500); margin-top: 2px; }
+
+    /* Payment */
+    .payment-list { display: flex; flex-direction: column; gap: 0.75rem; }
+    .pay-item { }
+    .pay-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem; }
+    .pay-badge { font-size: 0.75rem; font-weight: 700; padding: 2px 8px; border-radius: 6px; }
+    .pay-manual { background: #d1fae5; color: #065f46; }
+    .pay-qris { background: #dbeafe; color: #1e40af; }
+    .pay-transfer { background: #fef3c7; color: #92400e; }
+    .pay-bar-wrap { background: var(--gray-100); border-radius: 6px; height: 8px; overflow: hidden; margin-bottom: 0.2rem; }
+    .pay-bar { height: 100%; border-radius: 6px; transition: width 0.5s; }
+    .pay-bar-manual { background: #059669; }
+    .pay-bar-qris { background: #3b82f6; }
+    .pay-bar-transfer { background: #f59e0b; }
+
+    @media (max-width: 1024px) {
+      .summary-grid { grid-template-columns: repeat(2, 1fr); }
+      .grid-2 { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 768px) {
+      .summary-grid { grid-template-columns: 1fr; }
+    }
+  </style>
 </Layout>

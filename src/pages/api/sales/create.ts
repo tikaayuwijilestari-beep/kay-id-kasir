@@ -8,7 +8,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const db = await getDB(env);
   const body = await request.json() as any;
 
-  const { items, paymentMethod, customerName, discount, notes } = body;
+  const { items, paymentMethod, customerName, customerPhone, discount, notes } = body;
 
   if (!items || items.length === 0) {
     return new Response('Cart is empty', { status: 400 });
@@ -31,9 +31,9 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
   // Insert sale
   await db
-    .prepare(`INSERT INTO sales (id, invoice_no, tanggal, total_items, subtotal, discount, total, payment_method, customer_name, notes)
-      VALUES (?,?,?,?,?,?,?,?,?,?)`)
-    .bind(saleId, invoiceNo, today, totalItems, subtotal, discount || 0, total, paymentMethod || 'manual', customerName || null, notes || null)
+    .prepare(`INSERT INTO sales (id, invoice_no, tanggal, total_items, subtotal, discount, total, payment_method, customer_name, customer_phone, notes)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
+    .bind(saleId, invoiceNo, today, totalItems, subtotal, discount || 0, total, paymentMethod || 'manual', customerName || null, customerPhone || null, notes || null)
     .run();
 
   // Insert sale items and update inventory
@@ -41,14 +41,17 @@ export const POST: APIRoute = async ({ request, locals }) => {
     const itemId = nanoid();
     const itemSubtotal = item.price * item.qty;
 
+    // Get inventory to retrieve harga_beli
+    const inv = await db.prepare('SELECT * FROM inventory WHERE id = ?').bind(item.id).first() as any;
+    const hargaBeli = inv?.harga_beli_awal || 0;
+
     await db
-      .prepare(`INSERT INTO sales_items (id, sale_id, inventory_id, sku, nama_barang, qty, harga_satuan, subtotal)
-        VALUES (?,?,?,?,?,?,?,?)`)
-      .bind(itemId, saleId, item.id, item.sku, item.name, item.qty, item.price, itemSubtotal)
+      .prepare(`INSERT INTO sales_items (id, sale_id, inventory_id, sku, nama_barang, qty, harga_satuan, harga_beli, subtotal)
+        VALUES (?,?,?,?,?,?,?,?,?)`)
+      .bind(itemId, saleId, item.id, item.sku, item.name, item.qty, item.price, hargaBeli, itemSubtotal)
       .run();
 
     // Update inventory stock
-    const inv = await db.prepare('SELECT * FROM inventory WHERE id = ?').bind(item.id).first() as any;
     if (inv) {
       const newStock = Math.max(0, inv.stock_saat_ini - item.qty);
       const newStockTerjual = inv.stock_terjual + item.qty;

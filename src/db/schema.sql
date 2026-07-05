@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS sales (
   payment_method TEXT DEFAULT 'manual',
   payment_status TEXT DEFAULT 'paid',
   customer_name TEXT,
+  customer_phone TEXT,
   cashier_id TEXT,
   notes TEXT,
   created_at TEXT DEFAULT (datetime('now'))
@@ -65,6 +66,7 @@ CREATE TABLE IF NOT EXISTS sales_items (
   nama_barang TEXT NOT NULL,
   qty INTEGER NOT NULL,
   harga_satuan REAL NOT NULL,
+  harga_beli REAL DEFAULT 0,
   subtotal REAL NOT NULL,
   FOREIGN KEY (sale_id) REFERENCES sales(id),
   FOREIGN KEY (inventory_id) REFERENCES inventory(id)
