@@ -3,7 +3,7 @@ import { getDB } from '../../../lib/db';
 import { ALLOWED_EMAILS, OWNER_EMAIL, createSession, cleanupSessions } from '../../../lib/auth';
 
 // Google OAuth callback - only allows tikaayuwijilestari@gmail.com
-export const GET: APIRoute = async ({ request }) => {
+export const GET: APIRoute = async ({ request, locals }) => {
   const url = new URL(request.url);
   const code = url.searchParams.get('code');
   const error = url.searchParams.get('error');
@@ -23,9 +23,10 @@ export const GET: APIRoute = async ({ request }) => {
   }
 
   // Use env vars for OAuth credentials (set in Cloudflare Pages environment variables)
-  const env = (request as any).env as any;
-  const clientId = env?.GOOGLE_CLIENT_ID || '';
-  const clientSecret = env?.GOOGLE_CLIENT_SECRET || '';
+  const runtime = (locals as any)?.runtime;
+  const env = runtime?.env || (request as any).env || {};
+  const clientId = env?.GOOGLE_CLIENT_ID || (import.meta as any)?.env?.GOOGLE_CLIENT_ID || '';
+  const clientSecret = env?.GOOGLE_CLIENT_SECRET || (import.meta as any)?.env?.GOOGLE_CLIENT_SECRET || '';
 
   if (!clientId || !clientSecret) {
     // Fallback: create session directly for the owner (for development)
