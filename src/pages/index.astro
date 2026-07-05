@@ -1,0 +1,10 @@
+---
+import { getSession } from '../lib/auth';
+
+const user = await getSession(Astro.request);
+
+if (user) {
+  return Astro.redirect('/dashboard');
+}
+return Astro.redirect('/login');
+---

@@ -1,0 +1,144 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { requireAuth, formatCurrency, formatDate } from '../lib/auth';
+import { getDB } from '../lib/db';
+
+const user = await requireAuth(Astro.request);
+if (user instanceof Response) return user;
+
+const db = await getDB(Astro.request);
+const url = new URL(Astro.request.url);
+const period = url.searchParams.get('period') || 'daily';
+const dateFrom = url.searchParams.get('from') || new Date().toISOString().split('T')[0];
+const dateTo = url.searchParams.get('to') || new Date().toISOString().split('T')[0];
+
+let dateFilter = '';
+if (period === 'daily') {
+  dateFilter = `AND tanggal = '${dateFrom}'`;
+} else if (period === 'weekly') {
+  dateFilter = `AND tanggal BETWEEN date('${dateFrom}', '-6 days') AND '${dateFrom}'`;
+} else if (period === 'monthly') {
+  const ym = dateFrom.substring(0, 7);
+  dateFilter = `AND tanggal LIKE '${ym}%'`;
+} else {
+  dateFilter = `AND tanggal BETWEEN '${dateFrom}' AND '${dateTo}'`;
+}
+
+const sales = (await db.prepare(`SELECT * FROM sales WHERE 1=1 ${dateFilter} ORDER BY tanggal DESC, created_at DESC`).all()).results as any[];
+
+const summary = await db.prepare(`
+  SELECT
+    COUNT(*) as total_transactions,
+    COALESCE(SUM(total), 0) as total_revenue,
+    COALESCE(SUM(discount), 0) as total_discount,
+    COALESCE(SUM(subtotal), 0) as total_subtotal
+  FROM sales WHERE 1=1 ${dateFilter}
+`).first() as any;
+
+const paymentBreakdown = (await db.prepare(`
+  SELECT payment_method, COUNT(*) as cnt, COALESCE(SUM(total), 0) as total
+  FROM sales WHERE 1=1 ${dateFilter}
+  GROUP BY payment_method
+`).all()).results as any[];
+---
+
+<Layout title="Laporan" user={user} activePage="/reports">
+  <div class="page-header">
+    <h1>Laporan Keuangan</h1>
+    <div class="flex gap-1">
+      <a href={`/api/reports/pdf?period=${period}&from=${dateFrom}&to=${dateTo}`} class="btn btn-danger" target="_blank">Export PDF</a>
+    </div>
+  </div>
+
+  <!-- Filters -->
+  <div class="card mb-2">
+    <form method="GET" style="display:flex;gap:0.75rem;align-items:flex-end;flex-wrap:wrap;">
+      <div class="form-group" style="margin:0;">
+        <label>Periode</label>
+        <select name="period" class="form-control" style="width:160px;">
+          <option value="daily" selected={period === 'daily'}>Harian</option>
+          <option value="weekly" selected={period === 'weekly'}>Mingguan</option>
+          <option value="monthly" selected={period === 'monthly'}>Bulanan</option>
+          <option value="custom" selected={period === 'custom'}>Custom</option>
+        </select>
+      </div>
+      <div class="form-group" style="margin:0;">
+        <label>Dari Tanggal</label>
+        <input type="date" name="from" class="form-control" value={dateFrom} style="width:180px;" />
+      </div>
+      {period === 'custom' && (
+        <div class="form-group" style="margin:0;">
+          <label>Sampai Tanggal</label>
+          <input type="date" name="to" class="form-control" value={dateTo} style="width:180px;" />
+        </div>
+      )}
+      <button type="submit" class="btn btn-primary">Filter</button>
+    </form>
+  </div>
+
+  <!-- Summary Cards -->
+  <div class="grid-4 mb-2">
+    <div class="stat-card">
+      <div class="stat-label">Total Transaksi</div>
+      <div class="stat-value">{summary?.total_transactions || 0}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Total Pendapatan</div>
+      <div class="stat-value" style="font-size:1.1rem;">{formatCurrency(summary?.total_revenue || 0)}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Total Diskon</div>
+      <div class="stat-value" style="font-size:1.1rem;color:var(--warning);">{formatCurrency(summary?.total_discount || 0)}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Rata-rata per Transaksi</div>
+      <div class="stat-value" style="font-size:1.1rem;">{formatCurrency(summary?.total_transactions > 0 ? (summary?.total_revenue || 0) / summary.total_transactions : 0)}</div>
+    </div>
+  </div>
+
+  <!-- Payment Breakdown -->
+  <div class="card mb-2">
+    <h3 style="margin-bottom:1rem;">Breakdown Metode Pembayaran</h3>
+    <div class="grid-3">
+      {paymentBreakdown.map((p: any) => (
+        <div class="stat-card">
+          <div class="stat-label">{p.payment_method === 'manual' ? 'Tunai' : p.payment_method === 'qris' ? 'QRIS' : 'Transfer'}</div>
+          <div class="stat-value" style="font-size:1.1rem;">{formatCurrency(p.total)}</div>
+          <div class="stat-sub">{p.cnt} transaksi</div>
+        </div>
+      ))}
+      {paymentBreakdown.length === 0 && (
+        <p style="color:var(--gray-500);">Tidak ada data untuk periode ini.</p>
+      )}
+    </div>
+  </div>
+
+  <!-- Sales Table -->
+  <div class="card">
+    <h3 style="margin-bottom:1rem;">Detail Transaksi</h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Invoice</th><th>Tanggal</th><th>Items</th><th>Subtotal</th><th>Diskon</th><th>Total</th><th>Pembayaran</th><th>Pelanggan</th></tr>
+        </thead>
+        <tbody>
+          {sales.map((s: any) => (
+            <tr>
+              <td><strong>{s.invoice_no}</strong></td>
+              <td>{s.tanggal}</td>
+              <td>{s.total_items}</td>
+              <td>{formatCurrency(s.subtotal)}</td>
+              <td>{formatCurrency(s.discount)}</td>
+              <td><strong>{formatCurrency(s.total)}</strong></td>
+              <td><span class={`badge ${s.payment_method === 'manual' ? 'badge-success' : s.payment_method === 'qris' ? 'badge-info' : 'badge-warning'}`}>{s.payment_method === 'manual' ? 'Tunai' : s.payment_method === 'qris' ? 'QRIS' : 'Transfer'}</span></td>
+              <td>{s.customer_name || '-'}</td>
+            </tr>
+          ))}
+          {sales.length === 0 && (
+            <tr><td colspan="8" class="text-center" style="padding:2rem;color:var(--gray-500);">Tidak ada transaksi untuk periode ini</td></tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</Layout>

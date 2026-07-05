@@ -1,0 +1,208 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { requireAuth, formatCurrency } from '../lib/auth';
+import { getDB } from '../lib/db';
+
+const user = await requireAuth(Astro.request);
+if (user instanceof Response) return user;
+
+const db = await getDB(Astro.request);
+const items = (await db.prepare('SELECT * FROM inventory WHERE stock_saat_ini > 0 ORDER BY nama_barang ASC').all()).results as any[];
+---
+
+<Layout title="Kasir / POS" user={user} activePage="/pos">
+  <div class="page-header">
+    <h1>Kasir / Point of Sale</h1>
+  </div>
+
+  <div class="grid-2" style="grid-template-columns: 1.5fr 1fr; gap: 1rem;">
+    <!-- Left: Product Selection -->
+    <div>
+      <div class="card">
+        <div class="search-bar">
+          <input type="text" id="barcodeInput" class="form-control" placeholder="Scan barcode atau ketik SKU/nama barang..." autofocus />
+          <button class="btn btn-primary" onclick="searchProduct()">Cari</button>
+        </div>
+        <div class="table-wrap" style="max-height:400px;overflow-y:auto;">
+          <table>
+            <thead>
+              <tr><th>SKU</th><th>Nama</th><th>Stock</th><th>Harga</th><th>Aksi</th></tr>
+            </thead>
+            <tbody id="productList">
+              {items.map((item: any) => (
+                <tr data-sku={item.sku} data-name={item.nama_barang} data-price={item.harga_jual_eceran} data-id={item.id} data-stock={item.stock_saat_ini}>
+                  <td><code>{item.sku}</code></td>
+                  <td>{item.nama_barang}</td>
+                  <td>{item.stock_saat_ini} {item.satuan}</td>
+                  <td>{formatCurrency(item.harga_jual_eceran)}</td>
+                  <td><button class="btn btn-primary btn-sm" onclick='addToCart("{item.id}", "{item.sku}", "{item.nama_barang}", {item.harga_jual_eceran}, {item.stock_saat_ini})'>+ Tambah</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: Cart -->
+    <div>
+      <div class="card" style="position:sticky;top:1.5rem;">
+        <h3 style="margin-bottom:1rem;">Keranjang Belanja</h3>
+        <div id="cartItems" style="min-height:100px;max-height:300px;overflow-y:auto;">
+          <p style="color:var(--gray-500);text-align:center;padding:2rem;">Keranjang kosong</p>
+        </div>
+        <hr style="margin:1rem 0;border:none;border-top:1px solid var(--gray-200);" />
+        <div class="flex-between mb-1">
+          <span>Subtotal:</span>
+          <strong id="subtotalDisplay">Rp 0</strong>
+        </div>
+        <div class="flex-between mb-1">
+          <span>Diskon:</span>
+          <input type="number" id="discountInput" class="form-control" style="width:120px;text-align:right;" value="0" min="0" onchange="updateTotal()" />
+        </div>
+        <div class="flex-between mb-2" style="font-size:1.15rem;">
+          <span><strong>Total:</strong></span>
+          <strong id="totalDisplay" style="color:var(--primary);font-size:1.25rem;">Rp 0</strong>
+        </div>
+
+        <div class="form-group">
+          <label>Metode Pembayaran</label>
+          <select id="paymentMethod" class="form-control">
+            <option value="manual">Tunai / Manual</option>
+            <option value="qris">QRIS</option>
+            <option value="transfer">Transfer Bank</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Nama Pembeli (opsional)</label>
+          <input type="text" id="customerName" class="form-control" placeholder="Nama pembeli" />
+        </div>
+        <div class="form-group">
+          <label>Catatan</label>
+          <textarea id="orderNotes" class="form-control" rows="2" placeholder="Catatan pesanan..."></textarea>
+        </div>
+
+        <button class="btn btn-success" style="width:100%;padding:0.75rem;font-size:1rem;" onclick="checkout()">Bayar & Cetak Invoice</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let cart = [];
+
+    function addToCart(id, sku, name, price, stock) {
+      const existing = cart.find(c => c.id === id);
+      if (existing) {
+        if (existing.qty >= stock) { alert('Stock tidak mencukupi!'); return; }
+        existing.qty++;
+      } else {
+        cart.push({ id, sku, name, price, qty: 1, stock });
+      }
+      renderCart();
+    }
+
+    function removeFromCart(id) {
+      cart = cart.filter(c => c.id !== id);
+      renderCart();
+    }
+
+    function updateQty(id, delta) {
+      const item = cart.find(c => c.id === id);
+      if (!item) return;
+      item.qty += delta;
+      if (item.qty <= 0) { removeFromCart(id); return; }
+      if (item.qty > item.stock) { item.qty = item.stock; alert('Stock tidak mencukupi!'); }
+      renderCart();
+    }
+
+    function renderCart() {
+      const container = document.getElementById('cartItems');
+      if (cart.length === 0) {
+        container.innerHTML = '<p style="color:var(--gray-500);text-align:center;padding:2rem;">Keranjang kosong</p>';
+        updateTotal();
+        return;
+      }
+      container.innerHTML = cart.map(item => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:0.5rem 0;border-bottom:1px solid var(--gray-200);">
+          <div style="flex:1;">
+            <div style="font-weight:600;font-size:0.85rem;">${item.name}</div>
+            <div style="font-size:0.75rem;color:var(--gray-500);">${item.sku} - ${formatCurrency(item.price)}</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:0.4rem;">
+            <button onclick="updateQty('${item.id}', -1)" style="width:24px;height:24px;border:1px solid var(--gray-300);background:white;border-radius:4px;cursor:pointer;">-</button>
+            <span style="font-weight:600;min-width:24px;text-align:center;">${item.qty}</span>
+            <button onclick="updateQty('${item.id}', 1)" style="width:24px;height:24px;border:1px solid var(--gray-300);background:white;border-radius:4px;cursor:pointer;">+</button>
+            <button onclick="removeFromCart('${item.id}')" style="margin-left:0.5rem;color:var(--danger);background:none;border:none;cursor:pointer;font-size:1rem;">&times;</button>
+          </div>
+        </div>
+      `).join('');
+      updateTotal();
+    }
+
+    function updateTotal() {
+      const subtotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
+      const discount = parseInt(document.getElementById('discountInput').value) || 0;
+      const total = Math.max(0, subtotal - discount);
+      document.getElementById('subtotalDisplay').textContent = formatCurrency(subtotal);
+      document.getElementById('totalDisplay').textContent = formatCurrency(total);
+    }
+
+    function formatCurrency(n) {
+      return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(n);
+    }
+
+    async function checkout() {
+      if (cart.length === 0) { alert('Keranjang kosong!'); return; }
+      const paymentMethod = document.getElementById('paymentMethod').value;
+      const customerName = document.getElementById('customerName').value;
+      const discount = parseInt(document.getElementById('discountInput').value) || 0;
+      const notes = document.getElementById('orderNotes').value;
+
+      const res = await fetch('/api/sales/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: cart, paymentMethod, customerName, discount, notes })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        cart = [];
+        renderCart();
+        document.getElementById('discountInput').value = '0';
+        document.getElementById('customerName').value = '';
+        document.getElementById('orderNotes').value = '';
+        window.open(`/api/sales/${data.invoiceNo}/pdf`, '_blank');
+        location.reload();
+      } else {
+        const err = await res.text();
+        alert('Gagal: ' + err);
+      }
+    }
+
+    function searchProduct() {
+      const q = document.getElementById('barcodeInput').value.toLowerCase();
+      const rows = document.querySelectorAll('#productList tr');
+      rows.forEach(row => {
+        const text = row.textContent.toLowerCase();
+        row.style.display = text.includes(q) ? '' : 'none';
+      });
+    }
+
+    document.getElementById('barcodeInput').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const q = this.value.trim();
+        if (!q) return;
+        const rows = document.querySelectorAll('#productList tr');
+        for (const row of rows) {
+          if (row.dataset.sku?.toLowerCase() === q.toLowerCase() || row.dataset.name?.toLowerCase().includes(q.toLowerCase())) {
+            addToCart(row.dataset.id, row.dataset.sku, row.dataset.name, parseFloat(row.dataset.price), parseInt(row.dataset.stock));
+            this.value = '';
+            return;
+          }
+        }
+        searchProduct();
+      }
+    });
+  </script>
+</Layout>

@@ -1,0 +1,144 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { requireAuth, formatCurrency } from '../lib/auth';
+import { getDB } from '../lib/db';
+
+const user = await requireAuth(Astro.request);
+if (user instanceof Response) return user;
+
+const db = await getDB(Astro.request);
+
+const lowStockItems = (await db.prepare(`
+  SELECT * FROM inventory WHERE stock_saat_ini <= batas_stok_min ORDER BY stock_saat_ini ASC
+`).all()).results as any[];
+
+const restockHistory = (await db.prepare(`
+  SELECT r.*, i.sku as inv_sku FROM restock r LEFT JOIN inventory i ON r.inventory_id = i.id ORDER BY r.created_at DESC LIMIT 20
+`).all()).results as any[];
+---
+
+<Layout title="Restock" user={user} activePage="/restock">
+  <div class="page-header">
+    <h1>Restock Barang</h1>
+    <button class="btn btn-primary" onclick="document.getElementById('restockModal').classList.remove('hidden')">+ Restock Manual</button>
+  </div>
+
+  <div class="card mb-2">
+    <h3 style="margin-bottom:1rem;color:var(--danger);">Barang Perlu Restock ({lowStockItems.length})</h3>
+    {lowStockItems.length === 0 ? (
+      <p style="color:var(--gray-500);text-align:center;padding:2rem;">Semua stok aman, tidak perlu restock.</p>
+    ) : (
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>SKU</th><th>Nama</th><th>Stock Saat Ini</th><th>Min</th><th>Kekurangan</th><th>Aksi</th></tr>
+          </thead>
+          <tbody>
+            {lowStockItems.map((item: any) => (
+              <tr>
+                <td><code>{item.sku}</code></td>
+                <td><strong>{item.nama_barang}</strong></td>
+                <td><span class="badge badge-danger">{item.stock_saat_ini} {item.satuan}</span></td>
+                <td>{item.batas_stok_min}</td>
+                <td>{Math.max(0, item.batas_stok_min - item.stock_saat_ini)}</td>
+                <td>
+                  <button class="btn btn-warning btn-sm" onclick={`quickRestock('${item.id}','${item.sku}','${item.nama_barang.replace(/'/g, "\\'")}')`}>
+                    Restock Otomatis
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )}
+  </div>
+
+  <div class="card">
+    <h3 style="margin-bottom:1rem;">Riwayat Restock</h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Tanggal</th><th>SKU</th><th>Nama</th><th>Qty</th><th>Biaya</th><th>Supplier</th><th>Status</th></tr>
+        </thead>
+        <tbody>
+          {restockHistory.map((r: any) => (
+            <tr>
+              <td>{r.tanggal}</td>
+              <td><code>{r.sku}</code></td>
+              <td>{r.nama_barang}</td>
+              <td>{r.qty}</td>
+              <td>{formatCurrency(r.total_biaya)}</td>
+              <td>{r.supplier || '-'}</td>
+              <td><span class={`badge ${r.status === 'completed' ? 'badge-success' : r.status === 'pending' ? 'badge-warning' : 'badge-danger'}`}>{r.status}</span></td>
+            </tr>
+          ))}
+          {restockHistory.length === 0 && (
+            <tr><td colspan="7" class="text-center" style="padding:2rem;color:var(--gray-500);">Belum ada riwayat restock</td></tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Restock Modal -->
+  <div id="restockModal" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Restock Barang</h2>
+        <button class="modal-close" onclick="document.getElementById('restockModal').classList.add('hidden')">&times;</button>
+      </div>
+      <form action="/api/restock/create" method="POST">
+        <div class="form-group">
+          <label>Pilih Barang *</label>
+          <select name="inventory_id" class="form-control" required>
+            <option value="">-- Pilih Barang --</option>
+            {(await db.prepare('SELECT id, sku, nama_barang FROM inventory ORDER BY nama_barang').all()).results.map((item: any) => (
+              <option value={item.id}>{item.sku} - {item.nama_barang}</option>
+            ))}
+          </select>
+        </div>
+        <div class="grid-2">
+          <div class="form-group">
+            <label>Jumlah Restock *</label>
+            <input type="number" name="qty" class="form-control" required min="1" />
+          </div>
+          <div class="form-group">
+            <label>Harga Beli per Unit (Rp)</label>
+            <input type="number" name="harga_beli" class="form-control" value="0" />
+          </div>
+          <div class="form-group">
+            <label>Supplier</label>
+            <input type="text" name="supplier" class="form-control" />
+          </div>
+          <div class="form-group">
+            <label>Tanggal</label>
+            <input type="date" name="tanggal" class="form-control" value={new Date().toISOString().split('T')[0]} />
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Catatan</label>
+          <textarea name="notes" class="form-control"></textarea>
+        </div>
+        <div class="flex gap-1" style="justify-content:flex-end;margin-top:1rem;">
+          <button type="button" class="btn btn-outline" onclick="document.getElementById('restockModal').classList.add('hidden')">Batal</button>
+          <button type="submit" class="btn btn-primary">Proses Restock</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    async function quickRestock(id, sku, name) {
+      const qty = prompt(`Restock ${name} (${sku}) - Masukkan jumlah:`);
+      if (!qty || parseInt(qty) <= 0) return;
+      const res = await fetch('/api/restock/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ inventory_id: id, qty: parseInt(qty), auto: true })
+      });
+      if (res.ok) { location.reload(); }
+      else { alert('Gagal restock'); }
+    }
+  </script>
+</Layout>

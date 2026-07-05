@@ -1,0 +1,115 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { requireAuth } from '../lib/auth';
+import { getDB } from '../lib/db';
+import { formatCurrency } from '../lib/auth';
+
+const user = await requireAuth(Astro.request);
+if (user instanceof Response) return user;
+
+const db = await getDB(Astro.request);
+
+const stats = await db.prepare(`
+  SELECT
+    COUNT(*) as total_items,
+    SUM(stock_saat_ini) as total_stock,
+    SUM(nilai_aset) as total_aset,
+    SUM(nilai_barang_terjual) as total_terjual,
+    SUM(keuntungan_penjualan) as total_profit,
+    SUM(CASE WHEN stock_saat_ini <= batas_stok_min THEN 1 ELSE 0 END) as low_stock
+  FROM inventory
+`).first() as any;
+
+const todaySales = await db.prepare(`
+  SELECT COUNT(*) as cnt, COALESCE(SUM(total), 0) as total
+  FROM sales WHERE tanggal = date('now')
+`).first() as any;
+
+const recentSales = (await db.prepare(`
+  SELECT * FROM sales ORDER BY created_at DESC LIMIT 5
+`).all()).results as any[];
+
+const lowStockItems = (await db.prepare(`
+  SELECT * FROM inventory WHERE stock_saat_ini <= batas_stok_min ORDER BY stock_saat_ini ASC LIMIT 5
+`).all()).results as any[];
+---
+
+<Layout title="Dashboard" user={user} activePage="/dashboard">
+  <div class="page-header">
+    <h1>Dashboard</h1>
+    <span style="color:var(--gray-500);font-size:0.85rem;">{new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</span>
+  </div>
+
+  <div class="grid-4 mb-2">
+    <div class="stat-card">
+      <div class="stat-label">Total Item Inventory</div>
+      <div class="stat-value">{stats?.total_items || 0}</div>
+      <div class="stat-sub">{stats?.total_stock || 0} unit stock</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Nilai Aset Gudang</div>
+      <div class="stat-value" style="font-size:1.1rem;">{formatCurrency(stats?.total_aset || 0)}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Penjualan Hari Ini</div>
+      <div class="stat-value">{todaySales?.cnt || 0}</div>
+      <div class="stat-sub">{formatCurrency(todaySales?.total || 0)}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Total Keuntungan</div>
+      <div class="stat-value" style="font-size:1.1rem;color:var(--success);">{formatCurrency(stats?.total_profit || 0)}</div>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="flex-between mb-1">
+        <h3 style="font-size:1rem;">Penjualan Terbaru</h3>
+        <a href="/reports" class="btn btn-outline btn-sm">Lihat Semua</a>
+      </div>
+      <table>
+        <thead>
+          <tr><th>Invoice</th><th>Tanggal</th><th>Total</th><th>Status</th></tr>
+        </thead>
+        <tbody>
+          {recentSales.map((s: any) => (
+            <tr>
+              <td><strong>{s.invoice_no}</strong></td>
+              <td>{s.tanggal}</td>
+              <td>{formatCurrency(s.total)}</td>
+              <td><span class="badge badge-success">{s.payment_status}</span></td>
+            </tr>
+          ))}
+          {(!recentSales || recentSales.length === 0) && (
+            <tr><td colspan="4" class="text-center" style="color:var(--gray-500);padding:2rem;">Belum ada penjualan</td></tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <div class="flex-between mb-1">
+        <h3 style="font-size:1rem;">Stok Menipis ({stats?.low_stock || 0})</h3>
+        <a href="/inventory" class="btn btn-outline btn-sm">Kelola</a>
+      </div>
+      <table>
+        <thead>
+          <tr><th>SKU</th><th>Nama</th><th>Stock</th><th>Min</th></tr>
+        </thead>
+        <tbody>
+          {lowStockItems.map((item: any) => (
+            <tr>
+              <td><code>{item.sku}</code></td>
+              <td>{item.nama_barang}</td>
+              <td><span class="badge badge-danger">{item.stock_saat_ini}</span></td>
+              <td>{item.batas_stok_min}</td>
+            </tr>
+          ))}
+          {(!lowStockItems || lowStockItems.length === 0) && (
+            <tr><td colspan="4" class="text-center" style="color:var(--gray-500);padding:2rem;">Semua stok aman</td></tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</Layout>

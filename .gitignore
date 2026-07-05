@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.astro/
+.DS_Store
+*.local
+.env
+wrangler.toml
+Include/
+Lib/
+Scripts/
+__pycache__/
