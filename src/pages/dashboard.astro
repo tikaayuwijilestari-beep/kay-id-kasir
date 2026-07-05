@@ -1,8 +1,7 @@
 ---
 import Layout from '../layouts/Layout.astro';
-import { requireAuth } from '../lib/auth';
+import { requireAuth, formatCurrency } from '../lib/auth';
 import { getDB, getEnvFromLocals } from '../lib/db';
-import { formatCurrency } from '../lib/auth';
 
 const env = getEnvFromLocals(Astro.locals);
 const user = await requireAuth(env, Astro.request);
@@ -26,6 +25,11 @@ const todaySales = await db.prepare(`
   FROM sales WHERE tanggal = date('now')
 `).first() as any;
 
+const monthSales = await db.prepare(`
+  SELECT COUNT(*) as cnt, COALESCE(SUM(total), 0) as total
+  FROM sales WHERE strftime('%Y-%m', tanggal) = strftime('%Y-%m', 'now')
+`).first() as any;
+
 const recentSales = (await db.prepare(`
   SELECT * FROM sales ORDER BY created_at DESC LIMIT 5
 `).all()).results as any[];
@@ -33,39 +37,81 @@ const recentSales = (await db.prepare(`
 const lowStockItems = (await db.prepare(`
   SELECT * FROM inventory WHERE stock_saat_ini <= batas_stok_min ORDER BY stock_saat_ini ASC LIMIT 5
 `).all()).results as any[];
+
+const totalProfit = stats?.total_profit || 0;
+const totalAsset = stats?.total_aset || 0;
+const totalSold = stats?.total_terjual || 0;
 ---
 
 <Layout title="Dashboard" user={user} activePage="/dashboard">
-  <div class="page-header">
-    <h1>Dashboard</h1>
-    <span style="color:var(--gray-500);font-size:0.85rem;">{new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</span>
+  <div class="dash-header">
+    <div>
+      <h1>Dashboard</h1>
+      <p class="date-text" id="currentDate"></p>
+    </div>
+    <div class="clock-card" id="liveClock">--:--:--</div>
   </div>
 
-  <div class="grid-4 mb-2">
-    <div class="stat-card">
-      <div class="stat-label">Total Item Inventory</div>
-      <div class="stat-value">{stats?.total_items || 0}</div>
-      <div class="stat-sub">{stats?.total_stock || 0} unit stock</div>
+  <!-- Financial Summary Cards -->
+  <div class="finance-grid">
+    <div class="fin-card fin-asset">
+      <div class="fin-icon">💰</div>
+      <div class="fin-info">
+        <span class="fin-label">Total Aset Gudang</span>
+        <span class="fin-value">{formatCurrency(totalAsset)}</span>
+        <span class="fin-sub">{stats?.total_items || 0} item · {stats?.total_stock || 0} unit</span>
+      </div>
     </div>
-    <div class="stat-card">
-      <div class="stat-label">Nilai Aset Gudang</div>
-      <div class="stat-value" style="font-size:1.1rem;">{formatCurrency(stats?.total_aset || 0)}</div>
+    <div class="fin-card fin-profit">
+      <div class="fin-icon">📈</div>
+      <div class="fin-info">
+        <span class="fin-label">Total Keuntungan</span>
+        <span class="fin-value">{formatCurrency(totalProfit)}</span>
+        <span class="fin-sub">Dari {formatCurrency(totalSold)} penjualan</span>
+      </div>
     </div>
-    <div class="stat-card">
-      <div class="stat-label">Penjualan Hari Ini</div>
-      <div class="stat-value">{todaySales?.cnt || 0}</div>
-      <div class="stat-sub">{formatCurrency(todaySales?.total || 0)}</div>
+    <div class="fin-card fin-today">
+      <div class="fin-icon">🛒</div>
+      <div class="fin-info">
+        <span class="fin-label">Penjualan Hari Ini</span>
+        <span class="fin-value">{formatCurrency(todaySales?.total || 0)}</span>
+        <span class="fin-sub">{todaySales?.cnt || 0} transaksi</span>
+      </div>
     </div>
-    <div class="stat-card">
-      <div class="stat-label">Total Keuntungan</div>
-      <div class="stat-value" style="font-size:1.1rem;color:var(--success);">{formatCurrency(stats?.total_profit || 0)}</div>
+    <div class="fin-card fin-month">
+      <div class="fin-icon">📊</div>
+      <div class="fin-info">
+        <span class="fin-label">Penjualan Bulan Ini</span>
+        <span class="fin-value">{formatCurrency(monthSales?.total || 0)}</span>
+        <span class="fin-sub">{monthSales?.cnt || 0} transaksi</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Quick Stats Row -->
+  <div class="quick-stats">
+    <div class="qs-item">
+      <span class="qs-num">{stats?.total_items || 0}</span>
+      <span class="qs-label">Total Produk</span>
+    </div>
+    <div class="qs-item">
+      <span class="qs-num">{stats?.total_stock || 0}</span>
+      <span class="qs-label">Total Stok</span>
+    </div>
+    <div class="qs-item qs-warn">
+      <span class="qs-num">{stats?.low_stock || 0}</span>
+      <span class="qs-label">Stok Menipis</span>
+    </div>
+    <div class="qs-item qs-ok">
+      <span class="qs-num">{formatCurrency(totalProfit)}</span>
+      <span class="qs-label">Profit Kumulatif</span>
     </div>
   </div>
 
   <div class="grid-2">
     <div class="card">
       <div class="flex-between mb-1">
-        <h3 style="font-size:1rem;">Penjualan Terbaru</h3>
+        <h3>Penjualan Terbaru</h3>
         <a href="/reports" class="btn btn-outline btn-sm">Lihat Semua</a>
       </div>
       <table>
@@ -90,7 +136,7 @@ const lowStockItems = (await db.prepare(`
 
     <div class="card">
       <div class="flex-between mb-1">
-        <h3 style="font-size:1rem;">Stok Menipis ({stats?.low_stock || 0})</h3>
+        <h3>Stok Menipis ({stats?.low_stock || 0})</h3>
         <a href="/inventory" class="btn btn-outline btn-sm">Kelola</a>
       </div>
       <table>
@@ -113,4 +159,107 @@ const lowStockItems = (await db.prepare(`
       </table>
     </div>
   </div>
+
+  <script>
+    // Live clock
+    function updateClock() {
+      const now = new Date();
+      const time = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const clock = document.getElementById('liveClock');
+      if (clock) clock.textContent = time;
+
+      const date = now.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+      const dateEl = document.getElementById('currentDate');
+      if (dateEl) dateEl.textContent = date;
+    }
+    updateClock();
+    setInterval(updateClock, 1000);
+  </script>
+
+  <style>
+    .dash-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 1.5rem;
+    }
+    .dash-header h1 { font-size: 1.6rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .date-text { color: var(--gray-500); font-size: 0.9rem; }
+    .clock-card {
+      background: var(--gray-900);
+      color: #60a5fa;
+      font-size: 1.8rem;
+      font-weight: 700;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      padding: 0.6rem 1.2rem;
+      border-radius: 0.75rem;
+      letter-spacing: 0.05em;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    .finance-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+    .fin-card {
+      background: white;
+      border-radius: 1rem;
+      padding: 1.25rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+      border-left: 4px solid var(--primary);
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .fin-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(0,0,0,0.1);
+    }
+    .fin-asset { border-left-color: #1a56db; }
+    .fin-profit { border-left-color: #059669; }
+    .fin-today { border-left-color: #d97706; }
+    .fin-month { border-left-color: #7c3aed; }
+    .fin-icon {
+      font-size: 2rem;
+      width: 56px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 0.75rem;
+      flex-shrink: 0;
+    }
+    .fin-asset .fin-icon { background: #dbeafe; }
+    .fin-profit .fin-icon { background: #d1fae5; }
+    .fin-today .fin-icon { background: #fef3c7; }
+    .fin-month .fin-icon { background: #ede9fe; }
+    .fin-info { display: flex; flex-direction: column; gap: 0.15rem; }
+    .fin-label { font-size: 0.8rem; color: var(--gray-500); font-weight: 500; }
+    .fin-value { font-size: 1.35rem; font-weight: 700; color: var(--gray-900); }
+    .fin-sub { font-size: 0.75rem; color: var(--gray-500); }
+    .quick-stats {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+    .qs-item {
+      background: white;
+      border-radius: 0.75rem;
+      padding: 1rem;
+      text-align: center;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    }
+    .qs-num { display: block; font-size: 1.2rem; font-weight: 700; color: var(--gray-900); }
+    .qs-label { display: block; font-size: 0.75rem; color: var(--gray-500); margin-top: 0.2rem; }
+    .qs-warn .qs-num { color: var(--danger); }
+    .qs-ok .qs-num { color: var(--success); font-size: 1rem; }
+    @media (max-width: 768px) {
+      .finance-grid { grid-template-columns: 1fr; }
+      .quick-stats { grid-template-columns: repeat(2, 1fr); }
+      .dash-header { flex-direction: column; gap: 0.75rem; }
+    }
+  </style>
 </Layout>
