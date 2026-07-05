@@ -4,8 +4,7 @@ dist/
 .DS_Store
 *.local
 .env
-wrangler.toml
-Include/
-Lib/
-Scripts/
-__pycache__/
+/Include/
+/Lib/
+/Scripts/
+/__pycache__/

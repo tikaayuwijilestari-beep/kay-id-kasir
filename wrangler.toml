@@ -1,0 +1,9 @@
+name = "kay-id-kasir"
+compatibility_date = "2025-01-01"
+
+pages_build_output_dir = "./dist"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "kayid_db"
+database_id = "9fcc39cc-134e-433b-a782-eddbfcab4db4"
