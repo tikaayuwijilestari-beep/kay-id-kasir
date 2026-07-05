@@ -1,0 +1,395 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { requireAuth, formatCurrency } from '../lib/auth';
+import { getDB, getEnvFromLocals } from '../lib/db';
+
+const env = getEnvFromLocals(Astro.locals);
+const user = await requireAuth(env, Astro.request);
+if (user instanceof Response) return user;
+---
+
+<Layout title="Scan QR" user={user} activePage="/scan">
+  <div class="page-header">
+    <div>
+      <h1>Scan QR Code</h1>
+      <p class="page-sub">Arahkan kamera ke QR code barang untuk update stok cepat</p>
+    </div>
+    <a href="/inventory" class="btn btn-outline">← Kembali ke Inventory</a>
+  </div>
+
+  <div class="scan-layout">
+    <!-- Scanner -->
+    <div class="scan-card">
+      <div class="scan-header">
+        <span class="scan-icon">📷</span>
+        <div>
+          <h3>Scanner Kamera</h3>
+          <p>Scan QR code barang di rak gudang</p>
+        </div>
+      </div>
+
+      <div id="reader" class="scanner-box"></div>
+
+      <div class="scan-controls">
+        <button id="startBtn" class="btn btn-primary btn-lg" onclick="startScanner()">
+          <span></span> Mulai Scan
+        </button>
+        <button id="stopBtn" class="btn btn-outline btn-lg hidden" onclick="stopScanner()">
+          <span>⏹️</span> Stop Scan
+        </button>
+      </div>
+
+      <div class="manual-input">
+        <p class="manual-label">Atau masukkan SKU manual:</p>
+        <div class="manual-row">
+          <input type="text" id="manualSku" class="form-control" placeholder="Contoh: SMN-001" />
+          <button class="btn btn-primary" onclick="lookupManual()">Cari</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Result Panel -->
+    <div class="result-card" id="resultCard">
+      <div class="result-empty" id="resultEmpty">
+        <div class="result-empty-icon">📦</div>
+        <h3>Belum ada hasil scan</h3>
+        <p>Scan QR code atau masukkan SKU untuk melihat detail barang</p>
+      </div>
+
+      <div id="resultContent" class="hidden">
+        <div class="result-header">
+          <div class="result-sku" id="resSku">-</div>
+          <span class="result-status" id="resStatus">-</span>
+        </div>
+        <h3 class="result-name" id="resName">-</h3>
+        <div class="result-merk" id="resMerk">-</div>
+
+        <div class="result-grid">
+          <div class="result-item">
+            <span class="result-label">Stok Saat Ini</span>
+            <span class="result-value" id="resStock">-</span>
+          </div>
+          <div class="result-item">
+            <span class="result-label">Lokasi Rak</span>
+            <span class="result-value" id="resLokasi">-</span>
+          </div>
+          <div class="result-item">
+            <span class="result-label">Harga Jual</span>
+            <span class="result-value" id="resHarga">-</span>
+          </div>
+          <div class="result-item">
+            <span class="result-label">Kategori</span>
+            <span class="result-value" id="resKategori">-</span>
+          </div>
+        </div>
+
+        <div class="result-actions">
+          <button class="btn btn-danger btn-lg" onclick="quickUpdate(-1)">
+            <span>➖</span> Kurangi Stok
+          </button>
+          <button class="btn btn-success btn-lg" onclick="quickUpdate(1)">
+            <span>➕</span> Tambah Stok
+          </button>
+        </div>
+
+        <div class="result-history" id="resultHistory"></div>
+      </div>
+    </div>
+  </div>
+
+  <script is:inline src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <script>
+    let html5QrCode = null;
+    let currentSku = null;
+    let currentId = null;
+
+    function formatCurrency(n) {
+      return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(n);
+    }
+
+    async function startScanner() {
+      try {
+        html5QrCode = new Html5Qrcode("reader");
+
+        await html5QrCode.start(
+          { facingMode: "environment" },
+          { fps: 10, qrbox: { width: 250, height: 250 } },
+          onScanSuccess,
+          onScanFailure
+        );
+
+        document.getElementById('startBtn').classList.add('hidden');
+        document.getElementById('stopBtn').classList.remove('hidden');
+      } catch (err) {
+        alert('Gagal memulai kamera: ' + err.message);
+      }
+    }
+
+    function stopScanner() {
+      if (html5QrCode) {
+        html5QrCode.stop().then(() => {
+          html5QrCode.clear();
+          html5QrCode = null;
+        }).catch(err => console.error(err));
+      }
+      document.getElementById('startBtn').classList.remove('hidden');
+      document.getElementById('stopBtn').classList.add('hidden');
+    }
+
+    function onScanSuccess(decodedText) {
+      // decodedText is the SKU
+      lookupBySku(decodedText.trim());
+    }
+
+    function onScanFailure(error) {
+      // Ignore scan failures (continuous scanning)
+    }
+
+    async function lookupBySku(sku) {
+      currentSku = sku;
+      try {
+        const res = await fetch(`/api/inventory/lookup?sku=${encodeURIComponent(sku)}`);
+        if (!res.ok) {
+          showResult(null, 'Barang tidak ditemukan: ' + sku);
+          return;
+        }
+        const data = await res.json();
+        currentId = data.id;
+        showResult(data, null);
+      } catch (err) {
+        showResult(null, 'Error: ' + err.message);
+      }
+    }
+
+    function lookupManual() {
+      const sku = document.getElementById('manualSku').value.trim();
+      if (sku) lookupBySku(sku);
+    }
+
+    function showResult(data, errorMsg) {
+      document.getElementById('resultEmpty').classList.add('hidden');
+      document.getElementById('resultContent').classList.remove('hidden');
+
+      if (errorMsg || !data) {
+        document.getElementById('resSku').textContent = currentSku || '-';
+        document.getElementById('resName').textContent = errorMsg || 'Tidak ditemukan';
+        document.getElementById('resMerk').textContent = '-';
+        document.getElementById('resStock').textContent = '-';
+        document.getElementById('resLokasi').textContent = '-';
+        document.getElementById('resHarga').textContent = '-';
+        document.getElementById('resKategori').textContent = '-';
+        document.getElementById('resStatus').textContent = '-';
+        document.getElementById('resStatus').className = 'result-status';
+        return;
+      }
+
+      document.getElementById('resSku').textContent = data.sku;
+      document.getElementById('resName').textContent = data.nama_barang;
+      document.getElementById('resMerk').textContent = data.merk || '-';
+      document.getElementById('resStock').textContent = data.stock_saat_ini + ' ' + (data.satuan || '');
+      document.getElementById('resLokasi').textContent = data.lokasi_rak || '-';
+      document.getElementById('resHarga').textContent = formatCurrency(data.harga_jual_eceran);
+      document.getElementById('resKategori').textContent = data.kategori || '-';
+
+      const statusEl = document.getElementById('resStatus');
+      if (data.status_stok === 'MENIPIS') {
+        statusEl.textContent = '️ MENIPIS';
+        statusEl.className = 'result-status status-low';
+      } else {
+        statusEl.textContent = '✅ AMAN';
+        statusEl.className = 'result-status status-ok';
+      }
+    }
+
+    async function quickUpdate(delta) {
+      if (!currentSku) { alert('Tidak ada barang yang dipilih'); return; }
+
+      try {
+        const res = await fetch('/api/inventory/scan', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sku: currentSku, delta })
+        });
+
+        if (!res.ok) {
+          alert('Gagal update stok: ' + await res.text());
+          return;
+        }
+
+        const data = await res.json();
+        // Refresh result
+        lookupBySku(currentSku);
+
+        // Show toast
+        showToast(`${delta > 0 ? '➕' : '➖'} ${data.nama_barang}: ${data.old_stock} → ${data.new_stock}`);
+      } catch (err) {
+        alert('Error: ' + err.message);
+      }
+    }
+
+    function showToast(msg) {
+      const existing = document.getElementById('toast');
+      if (existing) existing.remove();
+
+      const toast = document.createElement('div');
+      toast.id = 'toast';
+      toast.className = 'toast';
+      toast.textContent = msg;
+      document.body.appendChild(toast);
+
+      setTimeout(() => toast.remove(), 3000);
+    }
+
+    // Enter key for manual input
+    document.getElementById('manualSku').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') { e.preventDefault(); lookupManual(); }
+    });
+  </script>
+
+  <style>
+    .page-sub { color: var(--gray-500); font-size: 0.9rem; margin-top: 0.2rem; }
+
+    .scan-layout {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.25rem;
+      align-items: start;
+    }
+
+    .scan-card, .result-card {
+      background: white;
+      border-radius: 1rem;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.06);
+      border: 1px solid var(--gray-200);
+      padding: 1.5rem;
+    }
+
+    .scan-header {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 1.25rem;
+    }
+    .scan-icon { font-size: 2rem; }
+    .scan-header h3 { font-size: 1.05rem; font-weight: 700; }
+    .scan-header p { font-size: 0.8rem; color: var(--gray-500); }
+
+    .scanner-box {
+      width: 100%;
+      min-height: 300px;
+      border: 2px dashed var(--gray-300);
+      border-radius: 0.75rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--gray-50);
+      margin-bottom: 1rem;
+      overflow: hidden;
+    }
+    .scanner-box video { border-radius: 0.5rem; }
+
+    .scan-controls {
+      display: flex;
+      gap: 0.75rem;
+      margin-bottom: 1.25rem;
+    }
+    .btn-lg { padding: 0.65rem 1.25rem; font-size: 0.95rem; }
+
+    .manual-input {
+      border-top: 1px solid var(--gray-200);
+      padding-top: 1rem;
+    }
+    .manual-label { font-size: 0.82rem; color: var(--gray-500); margin-bottom: 0.5rem; }
+    .manual-row { display: flex; gap: 0.5rem; }
+    .manual-row input { flex: 1; }
+
+    /* Result panel */
+    .result-empty {
+      text-align: center;
+      padding: 3rem 1rem;
+    }
+    .result-empty-icon { font-size: 3rem; margin-bottom: 0.75rem; opacity: 0.5; }
+    .result-empty h3 { font-size: 1.05rem; margin-bottom: 0.4rem; }
+    .result-empty p { color: var(--gray-500); font-size: 0.85rem; }
+
+    .result-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.5rem;
+    }
+    .result-sku {
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 0.85rem;
+      background: var(--gray-100);
+      padding: 0.2rem 0.6rem;
+      border-radius: 0.35rem;
+      font-weight: 600;
+    }
+    .result-status {
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 0.2rem 0.6rem;
+      border-radius: 9999px;
+    }
+    .status-ok { background: #d1fae5; color: #065f46; }
+    .status-low { background: #fee2e2; color: #991b1b; }
+
+    .result-name { font-size: 1.15rem; font-weight: 700; margin-bottom: 0.15rem; }
+    .result-merk { font-size: 0.82rem; color: var(--gray-500); margin-bottom: 1rem; }
+
+    .result-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.75rem;
+      margin-bottom: 1.25rem;
+    }
+    .result-item {
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+      padding: 0.65rem;
+      background: var(--gray-50);
+      border-radius: 0.5rem;
+    }
+    .result-label { font-size: 0.7rem; color: var(--gray-500); text-transform: uppercase; letter-spacing: 0.03em; }
+    .result-value { font-size: 0.95rem; font-weight: 700; }
+
+    .result-actions {
+      display: flex;
+      gap: 0.75rem;
+    }
+    .result-actions .btn { flex: 1; justify-content: center; }
+
+    .result-history {
+      margin-top: 1rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--gray-200);
+    }
+
+    /* Toast */
+    .toast {
+      position: fixed;
+      bottom: 2rem;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--gray-900);
+      color: white;
+      padding: 0.75rem 1.5rem;
+      border-radius: 0.75rem;
+      font-size: 0.9rem;
+      font-weight: 500;
+      z-index: 9999;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+      animation: toastIn 0.3s ease;
+    }
+    @keyframes toastIn {
+      from { opacity: 0; transform: translateX(-50%) translateY(1rem); }
+      to { opacity: 1; transform: translateX(-50%) translateY(0); }
+    }
+
+    @media (max-width: 768px) {
+      .scan-layout { grid-template-columns: 1fr; }
+    }
+  </style>
+</Layout>

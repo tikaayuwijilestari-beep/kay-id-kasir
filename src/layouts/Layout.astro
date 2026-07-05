@@ -10,9 +10,10 @@ const { title, user, activePage } = Astro.props;
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: '' },
   { href: '/inventory', label: 'Inventory', icon: '📦' },
+  { href: '/scan', label: 'Scan QR', icon: '📱' },
   { href: '/pos', label: 'Kasir / POS', icon: '🛒' },
   { href: '/restock', label: 'Restock', icon: '🔄' },
-  { href: '/reports', label: 'Laporan', icon: '📈' },
+  { href: '/reports', label: 'Laporan', icon: '' },
   { href: '/members', label: 'Members', icon: '👥', adminOnly: true },
 ];
 ---

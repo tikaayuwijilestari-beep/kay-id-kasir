@@ -18,8 +18,8 @@ let query = 'SELECT * FROM inventory WHERE 1=1';
 const params: string[] = [];
 
 if (search) {
-  query += ' AND (nama_barang LIKE ? OR sku LIKE ? OR barcode LIKE ? OR merk LIKE ?)';
-  params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+  query += ' AND (nama_barang LIKE ? OR sku LIKE ? OR merk LIKE ?)';
+  params.push(`%${search}%`, `%${search}%`, `%${search}%`);
 }
 if (kategori) {
   query += ' AND kategori = ?';
@@ -52,16 +52,14 @@ const summary = await db.prepare(`
 interface ItemView {
   id: string; sku: string; nama_barang: string; merk: string; kategori: string;
   satuan: string; lokasi_rak: string; stock_saat_ini: number; batas_stok_min: number;
-  harga_beli_awal: number; harga_jual_eceran: number; nilai_aset: number;
-  cardClass: string; statusClass: string; statusText: string;
-  stockPct: number; stockColor: string; stockNumColor: string;
-  margin: number; marginColor: string; marginText: string;
+  harga_beli_awal: number; harga_jual_eceran: number; harga_jual_grosir: number; nilai_aset: number;
+  status_stok: string; cardClass: string; statusClass: string; statusText: string;
+  stockPct: number; stockColor: string;
 }
 
 const itemsView: ItemView[] = items.map((item: any) => {
   const isLow = item.stock_saat_ini <= item.batas_stok_min;
   const stockPct = item.batas_stok_min > 0 ? Math.min((item.stock_saat_ini / (item.batas_stok_min * 3)) * 100, 100) : 50;
-  const margin = item.harga_beli_awal > 0 ? Math.round(((item.harga_jual_eceran - item.harga_beli_awal) / item.harga_beli_awal) * 100) : 0;
   return {
     ...item,
     cardClass: isLow ? 'item-card item-low' : 'item-card',
@@ -69,12 +67,12 @@ const itemsView: ItemView[] = items.map((item: any) => {
     statusText: isLow ? 'MENIPIS' : 'AMAN',
     stockPct,
     stockColor: isLow ? 'var(--danger)' : stockPct < 50 ? 'var(--warning)' : 'var(--success)',
-    stockNumColor: isLow ? 'var(--danger)' : 'var(--warning)',
-    margin,
-    marginColor: margin > 0 ? 'var(--success)' : 'var(--gray-500)',
-    marginText: margin > 0 ? `+${margin}%` : '-',
   };
 });
+
+// Build PDF export URL with current filters
+let pdfUrl = '/api/reports/inventory-pdf';
+if (statusFilter) pdfUrl += `?type=${statusFilter}`;
 ---
 
 <Layout title="Inventory" user={user} activePage="/inventory">
@@ -83,9 +81,13 @@ const itemsView: ItemView[] = items.map((item: any) => {
       <h1>Inventory</h1>
       <p class="page-sub">Kelola semua barang toko bangunan Anda</p>
     </div>
-    <button class="btn btn-primary btn-lg" onclick="document.getElementById('addModal').classList.remove('hidden')">
-      <span class="btn-icon">+</span> Tambah Barang
-    </button>
+    <div class="header-actions">
+      <a href="/scan" class="btn btn-outline">📱 Scan QR</a>
+      <a href={pdfUrl} class="btn btn-outline" target="_blank">📄 Export PDF</a>
+      <button class="btn btn-primary btn-lg" onclick="document.getElementById('addModal').classList.remove('hidden')">
+        <span class="btn-icon">+</span> Tambah Barang
+      </button>
+    </div>
   </div>
 
   <!-- Summary Cards -->
@@ -105,7 +107,7 @@ const itemsView: ItemView[] = items.map((item: any) => {
       </div>
     </div>
     <div class="sum-card">
-      <div class="sum-icon sum-amber">📊</div>
+      <div class="sum-icon sum-amber"></div>
       <div class="sum-info">
         <span class="sum-value">{summary?.total_units || 0}</span>
         <span class="sum-label">Total Unit</span>
@@ -125,7 +127,7 @@ const itemsView: ItemView[] = items.map((item: any) => {
     <form method="GET" class="search-form">
       <div class="search-input-wrap">
         <span class="search-icon">🔍</span>
-        <input type="text" name="q" value={search} placeholder="Cari nama barang, SKU, barcode, atau merk..." class="search-input" />
+        <input type="text" name="q" value={search} placeholder="Cari nama barang, SKU, atau merk..." class="search-input" />
       </div>
       <select name="kategori" class="filter-select">
         <option value="">Semua Kategori</option>
@@ -143,19 +145,28 @@ const itemsView: ItemView[] = items.map((item: any) => {
     </form>
   </div>
 
-  <!-- Results Count -->
-  <div class="results-info">
-    Menampilkan <strong>{itemsView.length}</strong> dari <strong>{summary?.total || 0}</strong> produk
-    {kategori && <span class="active-filter">Kategori: {kategori}</span>}
-    {search && <span class="active-filter">Pencarian: "{search}"</span>}
+  <!-- View Toggle & Results Count -->
+  <div class="toolbar">
+    <div class="results-info">
+      Menampilkan <strong>{itemsView.length}</strong> dari <strong>{summary?.total || 0}</strong> produk
+      {kategori && <span class="active-filter">Kategori: {kategori}</span>}
+      {search && <span class="active-filter">Pencarian: "{search}"</span>}
+    </div>
+    <div class="view-toggle">
+      <button class="view-btn active" data-view="card" onclick="switchView('card')">🃏 Card</button>
+      <button class="view-btn" data-view="table" onclick="switchView('table')">📋 Tabel</button>
+    </div>
   </div>
 
-  <!-- Items Grid -->
-  <div class="items-grid">
+  <!-- Card View -->
+  <div class="items-grid" id="cardView">
     {itemsView.map((item: ItemView) => (
         <div class={item.cardClass}>
           <div class="item-top">
-            <div class="item-sku">{item.sku}</div>
+            <div class="item-sku-row">
+              <span class="item-sku">{item.sku}</span>
+              <button class="qr-btn" onclick="showQR('{item.id}', '{item.sku}')" title="Lihat QR Code">📱</button>
+            </div>
             <span class={item.statusClass}>{item.statusText}</span>
           </div>
           <h4 class="item-name">{item.nama_barang}</h4>
@@ -184,8 +195,8 @@ const itemsView: ItemView[] = items.map((item: any) => {
               <span class="price-val price-sell">{formatCurrency(item.harga_jual_eceran)}</span>
             </div>
             <div class="price-row">
-              <span class="price-label">Margin</span>
-              <span class="price-val" style={`color:${item.marginColor}`}>{item.marginText}</span>
+              <span class="price-label">Grosir</span>
+              <span class="price-val">{formatCurrency(item.harga_jual_grosir)}</span>
             </div>
           </div>
           <div class="item-footer">
@@ -212,17 +223,94 @@ const itemsView: ItemView[] = items.map((item: any) => {
     )}
   </div>
 
+  <!-- Table View -->
+  <div class="table-view hidden" id="tableView">
+    <div class="table-card">
+      <table>
+        <thead>
+          <tr>
+            <th>SKU</th>
+            <th>QR</th>
+            <th>Nama Barang</th>
+            <th>Merk</th>
+            <th>Kategori</th>
+            <th>Satuan</th>
+            <th>Lokasi</th>
+            <th class="th-right">Stok</th>
+            <th class="th-right">Min</th>
+            <th class="th-right">H. Beli</th>
+            <th class="th-right">H. Jual</th>
+            <th class="th-right">Nilai Aset</th>
+            <th>Status</th>
+            <th class="th-right">Aksi</th>
+          </tr>
+        </thead>
+        <tbody>
+          {itemsView.map((item: ItemView, i: number) => (
+            <tr class:list={[{ 'row-alt': i % 2 === 1 }]}>
+              <td><code class="sku-code">{item.sku}</code></td>
+              <td><button class="qr-btn-sm" onclick="showQR('{item.id}', '{item.sku}')">📱</button></td>
+              <td><strong>{item.nama_barang}</strong></td>
+              <td>{item.merk || '-'}</td>
+              <td>{item.kategori || '-'}</td>
+              <td>{item.satuan}</td>
+              <td>{item.lokasi_rak || '-'}</td>
+              <td class="td-right"><strong>{item.stock_saat_ini}</strong></td>
+              <td class="td-right">{item.batas_stok_min}</td>
+              <td class="td-right">{formatCurrency(item.harga_beli_awal)}</td>
+              <td class="td-right">{formatCurrency(item.harga_jual_eceran)}</td>
+              <td class="td-right">{formatCurrency(item.nilai_aset)}</td>
+              <td><span class={item.statusClass}>{item.statusText}</span></td>
+              <td class="td-right">
+                <form action={`/api/inventory/${item.id}/delete`} method="POST" style="display:inline;">
+                  <button type="submit" class="btn-delete" onclick={`return confirm('Hapus ${item.nama_barang}?')`}>🗑️</button>
+                </form>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {itemsView.length === 0 && (
+        <div class="table-empty">
+          <span class="empty-icon">📦</span>
+          <p>Tidak ada data untuk ditampilkan</p>
+        </div>
+      )}
+    </div>
+  </div>
+
+  <!-- QR Modal -->
+  <div id="qrModal" class="modal-overlay hidden">
+    <div class="modal qr-modal">
+      <div class="modal-header">
+        <div>
+          <h2>QR Code Barang</h2>
+          <p class="modal-sub" id="qrModalSku">-</p>
+        </div>
+        <button class="modal-close" onclick="document.getElementById('qrModal').classList.add('hidden')">&times;</button>
+      </div>
+      <div class="qr-display">
+        <img id="qrImage" src="" alt="QR Code" />
+      </div>
+      <p class="qr-hint">Scan QR ini untuk melihat detail & update stok cepat</p>
+      <div class="qr-actions">
+        <a id="qrDownload" class="btn btn-primary" download>⬇️ Download QR</a>
+        <button class="btn btn-outline" onclick="printQR()">🖨️ Print QR</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Add Modal -->
   <div id="addModal" class="modal-overlay hidden">
     <div class="modal modal-lg">
       <div class="modal-header">
         <div>
           <h2>Tambah Barang Baru</h2>
-          <p class="modal-sub">Lengkapi informasi barang di bawah ini</p>
+          <p class="modal-sub">Lengkapi informasi barang di bawah ini — SKU akan di-generate otomatis</p>
         </div>
         <button class="modal-close" onclick="document.getElementById('addModal').classList.add('hidden')">&times;</button>
       </div>
-      <form action="/api/inventory/create" method="POST">
+      <form id="addItemForm" onsubmit="return submitItem(event)">
         <div class="form-section">
           <h4 class="section-title">Informasi Dasar</h4>
           <div class="grid-2">
@@ -235,11 +323,12 @@ const itemsView: ItemView[] = items.map((item: any) => {
               <input type="text" name="merk" class="form-control" placeholder="Contoh: Holcim, Gresik" />
             </div>
             <div class="form-group">
-              <label>Kategori</label>
-              <input type="text" name="kategori" class="form-control" list="kategoriList" placeholder="Semen, Besi, Cat, dll" />
+              <label>Kategori *</label>
+              <input type="text" name="kategori" class="form-control" required list="kategoriList" placeholder="Semen, Besi, Cat, dll" />
               <datalist id="kategoriList">
                 {categories.map((c: any) => <option value={c.kategori} />)}
               </datalist>
+              <small class="field-hint">SKU akan dibuat otomatis dari 3 huruf pertama kategori (contoh: Semen → SMN-001)</small>
             </div>
             <div class="form-group">
               <label>Satuan *</label>
@@ -252,16 +341,19 @@ const itemsView: ItemView[] = items.map((item: any) => {
           <h4 class="section-title">Detail & Lokasi</h4>
           <div class="grid-3">
             <div class="form-group">
-              <label>Barcode</label>
-              <input type="text" name="barcode" class="form-control" placeholder="Scan atau ketik" />
-            </div>
-            <div class="form-group">
               <label>Lokasi Rak / Gudang</label>
               <input type="text" name="lokasi_rak" class="form-control" placeholder="Rak A3, Gudang 2" />
             </div>
             <div class="form-group">
               <label>Supplier Utama</label>
               <input type="text" name="supplier" class="form-control" placeholder="Nama supplier" />
+            </div>
+            <div class="form-group">
+              <label>&nbsp;</label>
+              <div class="sku-preview" id="skuPreview">
+                <span class="sku-preview-label">SKU Preview:</span>
+                <span class="sku-preview-value" id="skuPreviewValue">-</span>
+              </div>
             </div>
           </div>
         </div>
@@ -309,16 +401,114 @@ const itemsView: ItemView[] = items.map((item: any) => {
 
         <div class="modal-actions">
           <button type="button" class="btn btn-outline" onclick="document.getElementById('addModal').classList.add('hidden')">Batal</button>
-          <button type="submit" class="btn btn-primary btn-lg">Simpan Barang</button>
+          <button type="submit" class="btn btn-primary btn-lg" id="submitBtn">💾 Simpan Barang</button>
         </div>
       </form>
     </div>
   </div>
 
+  <!-- Success Toast -->
+  <div id="successToast" class="toast hidden">
+    <span id="toastMsg"></span>
+  </div>
+
+  <script>
+    let currentView = 'card';
+
+    function switchView(view) {
+      currentView = view;
+      document.getElementById('cardView').classList.toggle('hidden', view !== 'card');
+      document.getElementById('tableView').classList.toggle('hidden', view !== 'table');
+      document.querySelectorAll('.view-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.view === view);
+      });
+    }
+
+    function showQR(id, sku) {
+      document.getElementById('qrModalSku').textContent = sku;
+      document.getElementById('qrImage').src = `/api/inventory/${id}/qr`;
+      document.getElementById('qrDownload').href = `/api/inventory/${id}/qr`;
+      document.getElementById('qrModal').classList.remove('hidden');
+    }
+
+    function printQR() {
+      const img = document.getElementById('qrImage');
+      const sku = document.getElementById('qrModalSku').textContent;
+      const w = window.open('', '_blank');
+      w.document.write(`
+        <html><head><title>QR ${sku}</title>
+        <style>body{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;}
+        img{width:250px;height:250px;}p{font-size:1.2rem;font-weight:bold;margin-top:1rem;}</style></head>
+        <body><img src="${img.src}" /><p>${sku}</p></body></html>
+      `);
+      w.document.close();
+      w.print();
+    }
+
+    async function submitItem(e) {
+      e.preventDefault();
+      const form = e.target;
+      const btn = document.getElementById('submitBtn');
+      btn.disabled = true;
+      btn.textContent = '⏳ Menyimpan...';
+
+      const formData = new FormData(form);
+
+      try {
+        const res = await fetch('/api/inventory/create', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          form.reset();
+          document.getElementById('addModal').classList.add('hidden');
+          document.getElementById('skuPreviewValue').textContent = '-';
+          showToast(`✅ Barang berhasil ditambahkan! SKU: ${data.sku}`);
+          setTimeout(() => location.reload(), 1500);
+        } else {
+          const err = await res.text();
+          alert('Gagal: ' + err);
+        }
+      } catch (err) {
+        alert('Error: ' + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '💾 Simpan Barang';
+      }
+      return false;
+    }
+
+    function showToast(msg) {
+      const toast = document.getElementById('successToast');
+      document.getElementById('toastMsg').textContent = msg;
+      toast.classList.remove('hidden');
+      setTimeout(() => toast.classList.add('hidden'), 3000);
+    }
+
+    // Live SKU preview when typing category
+    document.querySelector('input[name="kategori"]').addEventListener('input', function() {
+      const val = this.value.trim();
+      if (val.length >= 1) {
+        const prefix = val.substring(0, 3).toUpperCase().replace(/[^A-Z0-9]/g, 'X');
+        document.getElementById('skuPreviewValue').textContent = `${prefix}-??? (auto)`;
+      } else {
+        document.getElementById('skuPreviewValue').textContent = '-';
+      }
+    });
+  </script>
+
   <style>
     .page-sub { color: var(--gray-500); font-size: 0.9rem; margin-top: 0.2rem; }
     .btn-lg { padding: 0.65rem 1.25rem; font-size: 0.95rem; }
     .btn-icon { font-size: 1.1rem; font-weight: 700; }
+
+    .header-actions {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+    }
 
     .summary-grid {
       display: grid;
@@ -333,13 +523,13 @@ const itemsView: ItemView[] = items.map((item: any) => {
       display: flex;
       align-items: center;
       gap: 0.85rem;
-      box-shadow: 0 4px 14px rgba(0,0,0,0.06);
+      box-shadow: 0 6px 20px rgba(0,0,0,0.06);
       border: 1px solid var(--gray-200);
       transition: transform 0.15s, box-shadow 0.15s;
     }
     .sum-card:hover {
       transform: translateY(-2px);
-      box-shadow: 0 8px 22px rgba(0,0,0,0.1);
+      box-shadow: 0 14px 36px rgba(0,0,0,0.1);
     }
     .sum-icon {
       width: 46px; height: 46px;
@@ -398,15 +588,36 @@ const itemsView: ItemView[] = items.map((item: any) => {
     .chip-safe.chip-active { background: var(--success); border-color: var(--success); }
     .chip-danger.chip-active { background: var(--danger); border-color: var(--danger); }
 
+    .toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1rem;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
     .results-info {
       font-size: 0.82rem; color: var(--gray-500);
-      margin-bottom: 1rem; display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;
+      display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;
     }
     .results-info strong { color: var(--gray-900); }
     .active-filter {
       background: var(--primary-light); color: var(--primary);
       padding: 0.15rem 0.5rem; border-radius: 9999px; font-size: 0.72rem; font-weight: 500;
     }
+    .view-toggle { display: flex; gap: 0.3rem; }
+    .view-btn {
+      padding: 0.4rem 0.85rem;
+      border: 1px solid var(--gray-300);
+      border-radius: 0.5rem;
+      background: white;
+      font-size: 0.82rem;
+      cursor: pointer;
+      transition: all 0.15s;
+      color: var(--gray-700);
+    }
+    .view-btn:hover { background: var(--gray-100); }
+    .view-btn.active { background: var(--primary); color: white; border-color: var(--primary); }
 
     .items-grid {
       display: grid;
@@ -417,22 +628,33 @@ const itemsView: ItemView[] = items.map((item: any) => {
       background: white;
       border-radius: 1rem;
       padding: 1.25rem;
-      box-shadow: 0 4px 14px rgba(0,0,0,0.06);
+      box-shadow: 0 6px 20px rgba(0,0,0,0.06);
       border: 1px solid var(--gray-200);
       border-left: 4px solid var(--success);
       transition: transform 0.2s, box-shadow 0.2s;
     }
     .item-card:hover {
       transform: translateY(-3px);
-      box-shadow: 0 10px 28px rgba(0,0,0,0.1);
+      box-shadow: 0 14px 36px rgba(0,0,0,0.1);
     }
     .item-low { border-left-color: var(--danger); }
     .item-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
+    .item-sku-row { display: flex; align-items: center; gap: 0.4rem; }
     .item-sku {
       font-family: 'SF Mono', 'Fira Code', monospace;
       font-size: 0.75rem; color: var(--gray-500);
       background: var(--gray-100); padding: 0.15rem 0.5rem; border-radius: 0.3rem;
     }
+    .qr-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 1rem;
+      padding: 0.1rem;
+      border-radius: 0.3rem;
+      transition: background 0.15s;
+    }
+    .qr-btn:hover { background: var(--gray-100); }
     .item-status {
       font-size: 0.68rem; font-weight: 700; padding: 0.2rem 0.5rem;
       border-radius: 9999px; letter-spacing: 0.03em;
@@ -490,6 +712,89 @@ const itemsView: ItemView[] = items.map((item: any) => {
     .empty-grid h3 { font-size: 1.1rem; margin-bottom: 0.4rem; }
     .empty-grid p { color: var(--gray-500); font-size: 0.9rem; margin-bottom: 1.25rem; }
 
+    /* Table View */
+    .table-view { margin-top: 0; }
+    .table-card {
+      background: white;
+      border-radius: 1rem;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.06);
+      border: 1px solid var(--gray-200);
+      overflow: hidden;
+    }
+    .table-card table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+    }
+    .table-card th {
+      background: var(--gray-50);
+      font-weight: 600;
+      color: var(--gray-500);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 0.75rem 0.85rem;
+      border-bottom: 2px solid var(--gray-200);
+      white-space: nowrap;
+    }
+    .table-card td {
+      padding: 0.65rem 0.85rem;
+      border-bottom: 1px solid var(--gray-100);
+      vertical-align: middle;
+    }
+    .table-card tr.row-alt { background: var(--gray-50); }
+    .table-card tr:hover { background: #f8fafc; }
+    .sku-code {
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 0.75rem;
+      background: var(--gray-100);
+      padding: 0.15rem 0.45rem;
+      border-radius: 0.25rem;
+      font-weight: 600;
+    }
+    .qr-btn-sm {
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 1.05rem;
+      padding: 0.2rem;
+      border-radius: 0.3rem;
+      transition: background 0.15s;
+    }
+    .qr-btn-sm:hover { background: var(--gray-100); }
+    .td-right { text-align: right; }
+    .th-right { text-align: right; }
+    .table-empty {
+      text-align: center;
+      padding: 3rem 1rem;
+      color: var(--gray-500);
+    }
+
+    /* QR Modal */
+    .qr-modal { max-width: 420px; text-align: center; }
+    .qr-display {
+      padding: 1.5rem;
+      background: white;
+      border: 2px solid var(--gray-200);
+      border-radius: 0.75rem;
+      margin: 1rem 0;
+    }
+    .qr-display img {
+      width: 220px;
+      height: 220px;
+    }
+    .qr-hint {
+      font-size: 0.82rem;
+      color: var(--gray-500);
+      margin-bottom: 1rem;
+    }
+    .qr-actions {
+      display: flex;
+      gap: 0.75rem;
+      justify-content: center;
+    }
+
+    /* Modal */
     .modal-lg { max-width: 720px; }
     .modal-sub { font-size: 0.82rem; color: var(--gray-500); margin-top: 0.2rem; }
     .form-section {
@@ -505,6 +810,28 @@ const itemsView: ItemView[] = items.map((item: any) => {
       border-bottom: 2px solid var(--primary-light);
       display: inline-block;
     }
+    .field-hint {
+      font-size: 0.72rem;
+      color: var(--gray-500);
+      margin-top: 0.25rem;
+      display: block;
+    }
+    .sku-preview {
+      background: var(--gray-50);
+      border: 1px dashed var(--gray-300);
+      border-radius: 0.5rem;
+      padding: 0.6rem 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .sku-preview-label { font-size: 0.75rem; color: var(--gray-500); }
+    .sku-preview-value {
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: var(--primary);
+    }
     .stock-hint {
       font-size: 0.75rem; color: var(--gray-500);
       background: #fef3c7; padding: 0.5rem 0.75rem;
@@ -516,6 +843,27 @@ const itemsView: ItemView[] = items.map((item: any) => {
       border-top: 1px solid var(--gray-200);
     }
 
+    /* Toast */
+    .toast {
+      position: fixed;
+      bottom: 2rem;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--gray-900);
+      color: white;
+      padding: 0.85rem 1.75rem;
+      border-radius: 0.75rem;
+      font-size: 0.9rem;
+      font-weight: 500;
+      z-index: 9999;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+      animation: toastIn 0.3s ease;
+    }
+    @keyframes toastIn {
+      from { opacity: 0; transform: translateX(-50%) translateY(1rem); }
+      to { opacity: 1; transform: translateX(-50%) translateY(0); }
+    }
+
     .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
     @media (max-width: 768px) {
       .summary-grid { grid-template-columns: repeat(2, 1fr); }
@@ -523,6 +871,9 @@ const itemsView: ItemView[] = items.map((item: any) => {
       .grid-3 { grid-template-columns: 1fr; }
       .search-form { flex-direction: column; }
       .search-input-wrap { min-width: 100%; }
+      .header-actions { flex-wrap: wrap; }
+      .table-card { overflow-x: auto; }
+      .toolbar { flex-direction: column; align-items: flex-start; }
     }
   </style>
 </Layout>

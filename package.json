@@ -12,7 +12,11 @@
   "dependencies": {
     "@astrojs/cloudflare": "^12.6.0",
     "astro": "^5.16.0",
-    "nanoid": "^5.1.5"
+    "html5-qrcode": "^2.3.8",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.8",
+    "nanoid": "^5.1.5",
+    "qrcode": "^1.5.4"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260702.1"

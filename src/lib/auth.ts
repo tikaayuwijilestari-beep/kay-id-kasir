@@ -62,11 +62,10 @@ export function generateInvoiceNo(): string {
   return `INV-${y}${m}${d}-${rand}`;
 }
 
-export function generateSKU(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-  const prefix = chars[Math.floor(Math.random() * 26)] + chars[Math.floor(Math.random() * 26)] + chars[Math.floor(Math.random() * 26)];
-  const num = Math.floor(Math.random() * 9000 + 1000);
-  return `${prefix}-${num}`;
+export function generateSKU(kategori: string, existingCount: number): string {
+  const prefix = kategori.substring(0, 3).toUpperCase().replace(/[^A-Z0-9]/g, 'X');
+  const number = String(existingCount + 1).padStart(3, '0');
+  return `${prefix}-${number}`;
 }
 
 // Generate cryptographically secure session token
