@@ -1,11 +1,12 @@
 import type { APIRoute } from 'astro';
-import { getDB } from '../../../lib/db';
+import { getDB, getEnvFromLocals } from '../../../lib/db';
 import { OWNER_EMAIL, createSession, cleanupSessions } from '../../../lib/auth';
 
 // Quick login - RESTRICTED: only owner email allowed
 // In production, remove this endpoint and use Google SSO only
-export const POST: APIRoute = async ({ request }) => {
-  const db = await getDB(request);
+export const POST: APIRoute = async ({ request, locals }) => {
+  const env = getEnvFromLocals(locals);
+  const db = await getDB(env);
   const formData = await request.formData();
   const name = formData.get('name') as string;
   const email = formData.get('email') as string;

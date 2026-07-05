@@ -1,13 +1,14 @@
 import type { APIRoute } from 'astro';
-import { getDB } from '../../../lib/db';
+import { getDB, getEnvFromLocals } from '../../../lib/db';
 import { requireAdmin, OWNER_EMAIL } from '../../../lib/auth';
 
 // Delete member - admin only, cannot delete owner
-export const POST: APIRoute = async ({ request }) => {
-  const user = await requireAdmin(request);
+export const POST: APIRoute = async ({ request, locals }) => {
+  const env = getEnvFromLocals(locals);
+  const user = await requireAdmin(env, request);
   if (user instanceof Response) return user;
 
-  const db = await getDB(request);
+  const db = await getDB(env);
   const formData = await request.formData();
   const userId = formData.get('user_id') as string;
 

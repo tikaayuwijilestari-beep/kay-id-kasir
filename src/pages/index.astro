@@ -1,7 +1,9 @@
 ---
 import { getSession } from '../lib/auth';
+import { getEnvFromLocals } from '../lib/db';
 
-const user = await getSession(Astro.request);
+const env = getEnvFromLocals(Astro.locals);
+const user = await getSession(env, Astro.request);
 
 if (user) {
   return Astro.redirect('/dashboard');

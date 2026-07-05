@@ -102,6 +102,8 @@ CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token);
 
 export interface Env {
   DB: D1Database;
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
 }
 
 export async function initDB(db: D1Database) {
@@ -115,11 +117,15 @@ export async function initDB(db: D1Database) {
   }
 }
 
-export async function getDB(request: Request): Promise<D1Database> {
-  const env = (request as any).env as Env;
+export async function getDB(env: Env): Promise<D1Database> {
   if (!env?.DB) {
     throw new Error('D1 Database not available. Make sure wrangler.toml is configured.');
   }
   await initDB(env.DB);
   return env.DB;
+}
+
+// Helper to extract Cloudflare env from Astro APIRoute context
+export function getEnvFromLocals(locals: any): Env {
+  return locals?.runtime?.env || {};
 }

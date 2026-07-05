@@ -1,13 +1,14 @@
 ---
 import Layout from '../layouts/Layout.astro';
 import { requireAuth } from '../lib/auth';
-import { getDB } from '../lib/db';
+import { getDB, getEnvFromLocals } from '../lib/db';
 import { formatCurrency } from '../lib/auth';
 
-const user = await requireAuth(Astro.request);
+const env = getEnvFromLocals(Astro.locals);
+const user = await requireAuth(env, Astro.request);
 if (user instanceof Response) return user;
 
-const db = await getDB(Astro.request);
+const db = await getDB(env);
 
 const stats = await db.prepare(`
   SELECT

@@ -1,9 +1,10 @@
 import type { APIRoute } from 'astro';
-import { getDB } from '../../../lib/db';
+import { getDB, getEnvFromLocals } from '../../../lib/db';
 import { formatCurrency, formatDate } from '../../../lib/auth';
 
-export const GET: APIRoute = async ({ request }) => {
-  const db = await getDB(request);
+export const GET: APIRoute = async ({ request, locals }) => {
+  const env = getEnvFromLocals(locals);
+  const db = await getDB(env);
   const url = new URL(request.url);
   const period = url.searchParams.get('period') || 'daily';
   const dateFrom = url.searchParams.get('from') || new Date().toISOString().split('T')[0];

@@ -1,9 +1,10 @@
 import type { APIRoute } from 'astro';
-import { getDB } from '../../../../lib/db';
+import { getDB, getEnvFromLocals } from '../../../../lib/db';
 import { formatCurrency, formatDate } from '../../../../lib/auth';
 
-export const GET: APIRoute = async ({ request, params }) => {
-  const db = await getDB(request);
+export const GET: APIRoute = async ({ request, params, locals }) => {
+  const env = getEnvFromLocals(locals);
+  const db = await getDB(env);
   const invoiceNo = params.invoiceNo;
 
   const sale = await db.prepare('SELECT * FROM sales WHERE invoice_no = ?').bind(invoiceNo).first() as any;

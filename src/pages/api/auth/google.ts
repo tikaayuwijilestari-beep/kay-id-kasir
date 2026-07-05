@@ -1,14 +1,12 @@
 import type { APIRoute } from 'astro';
+import { getEnvFromLocals } from '../../../lib/db';
 
 // Google SSO - redirects to Google OAuth
 // Configure GOOGLE_CLIENT_ID in Cloudflare Pages environment variables
 export const GET: APIRoute = async ({ request, locals }) => {
   const url = new URL(request.url);
-
-  // Access env vars via Astro locals (Cloudflare Pages runtime)
-  const runtime = (locals as any)?.runtime;
-  const env = runtime?.env || (request as any).env || {};
-  const clientId = env?.GOOGLE_CLIENT_ID || (import.meta as any)?.env?.GOOGLE_CLIENT_ID || '';
+  const env = getEnvFromLocals(locals);
+  const clientId = env?.GOOGLE_CLIENT_ID || '';
 
   if (!clientId) {
     // If no client ID configured, show error

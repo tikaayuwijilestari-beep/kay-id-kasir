@@ -1,9 +1,10 @@
 import type { APIRoute } from 'astro';
-import { getDB } from '../../../lib/db';
+import { getDB, getEnvFromLocals } from '../../../lib/db';
 import { nanoid } from 'nanoid';
 
-export const POST: APIRoute = async ({ request }) => {
-  const db = await getDB(request);
+export const POST: APIRoute = async ({ request, locals }) => {
+  const env = getEnvFromLocals(locals);
+  const db = await getDB(env);
   const contentType = request.headers.get('content-type') || '';
 
   let inventory_id: string, qty: number, harga_beli: number, supplier: string, tanggal: string, notes: string, auto: boolean;

@@ -1,17 +1,17 @@
-import { getDB } from './db';
+import { getDB, type Env } from './db';
 
 // Only this email can login as admin
 export const ALLOWED_EMAILS = ['tikaayuwijilestari@gmail.com'];
 
 export const OWNER_EMAIL = 'tikaayuwijilestari@gmail.com';
 
-export async function getSession(request: Request) {
+export async function getSession(env: Env, request: Request) {
   const cookies = request.headers.get('cookie') || '';
   const match = cookies.match(/session=([a-zA-Z0-9_-]+)/);
   if (!match) return null;
 
   const token = match[1];
-  const db = await getDB(request);
+  const db = await getDB(env);
 
   const session = await db
     .prepare(
@@ -25,8 +25,8 @@ export async function getSession(request: Request) {
   return session || null;
 }
 
-export async function requireAuth(request: Request) {
-  const user = await getSession(request);
+export async function requireAuth(env: Env, request: Request) {
+  const user = await getSession(env, request);
   if (!user) {
     return new Response(null, {
       status: 302,
@@ -36,8 +36,8 @@ export async function requireAuth(request: Request) {
   return user;
 }
 
-export async function requireAdmin(request: Request) {
-  const user = await requireAuth(request);
+export async function requireAdmin(env: Env, request: Request) {
+  const user = await requireAuth(env, request);
   if (user instanceof Response) return user;
   if (user.email !== OWNER_EMAIL) {
     return new Response('Access denied. Admin only.', { status: 403 });

@@ -1,12 +1,13 @@
 ---
 import Layout from '../layouts/Layout.astro';
 import { requireAdmin, OWNER_EMAIL } from '../lib/auth';
-import { getDB } from '../lib/db';
+import { getDB, getEnvFromLocals } from '../lib/db';
 
-const user = await requireAdmin(Astro.request);
+const env = getEnvFromLocals(Astro.locals);
+const user = await requireAdmin(env, Astro.request);
 if (user instanceof Response) return user;
 
-const db = await getDB(Astro.request);
+const db = await getDB(env);
 const members = (await db.prepare('SELECT * FROM users ORDER BY created_at DESC').all()).results as any[];
 ---
 

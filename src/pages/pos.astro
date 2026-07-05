@@ -1,12 +1,13 @@
 ---
 import Layout from '../layouts/Layout.astro';
 import { requireAuth, formatCurrency } from '../lib/auth';
-import { getDB } from '../lib/db';
+import { getDB, getEnvFromLocals } from '../lib/db';
 
-const user = await requireAuth(Astro.request);
+const env = getEnvFromLocals(Astro.locals);
+const user = await requireAuth(env, Astro.request);
 if (user instanceof Response) return user;
 
-const db = await getDB(Astro.request);
+const db = await getDB(env);
 const items = (await db.prepare('SELECT * FROM inventory WHERE stock_saat_ini > 0 ORDER BY nama_barang ASC').all()).results as any[];
 ---
 

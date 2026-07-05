@@ -1,10 +1,11 @@
 import type { APIRoute } from 'astro';
-import { getDB } from '../../../lib/db';
+import { getDB, getEnvFromLocals } from '../../../lib/db';
 import { nanoid } from 'nanoid';
 import { generateInvoiceNo } from '../../../lib/auth';
 
-export const POST: APIRoute = async ({ request }) => {
-  const db = await getDB(request);
+export const POST: APIRoute = async ({ request, locals }) => {
+  const env = getEnvFromLocals(locals);
+  const db = await getDB(env);
   const body = await request.json() as any;
 
   const { items, paymentMethod, customerName, discount, notes } = body;

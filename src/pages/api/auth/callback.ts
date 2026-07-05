@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { getDB } from '../../../lib/db';
+import { getDB, getEnvFromLocals } from '../../../lib/db';
 import { ALLOWED_EMAILS, OWNER_EMAIL, createSession, cleanupSessions } from '../../../lib/auth';
 
 // Google OAuth callback - only allows tikaayuwijilestari@gmail.com
@@ -23,10 +23,9 @@ export const GET: APIRoute = async ({ request, locals }) => {
   }
 
   // Use env vars for OAuth credentials (set in Cloudflare Pages environment variables)
-  const runtime = (locals as any)?.runtime;
-  const env = runtime?.env || (request as any).env || {};
-  const clientId = env?.GOOGLE_CLIENT_ID || (import.meta as any)?.env?.GOOGLE_CLIENT_ID || '';
-  const clientSecret = env?.GOOGLE_CLIENT_SECRET || (import.meta as any)?.env?.GOOGLE_CLIENT_SECRET || '';
+  const env = getEnvFromLocals(locals);
+  const clientId = env?.GOOGLE_CLIENT_ID || '';
+  const clientSecret = env?.GOOGLE_CLIENT_SECRET || '';
 
   if (!clientId || !clientSecret) {
     // Fallback: create session directly for the owner (for development)
@@ -70,7 +69,7 @@ export const GET: APIRoute = async ({ request, locals }) => {
     });
   }
 
-  const db = await getDB(request);
+  const db = await getDB(env);
 
   // Cleanup expired sessions
   await cleanupSessions(db);
