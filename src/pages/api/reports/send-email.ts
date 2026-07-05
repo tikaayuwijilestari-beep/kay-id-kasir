@@ -102,7 +102,7 @@ export const GET: APIRoute = async ({ url, locals }) => {
   return POST({ request: fakeRequest, locals, url, params: {} } as any);
 };
 
-// ===== PDF GENERATION (LANDSCAPE) =====
+// ===== PDF GENERATION (LANDSCAPE - COMPACT) =====
 async function generatePDF(
   type: string, periodLabel: string, summary: any, totalCOGS: number, totalProfit: number, profitMargin: string,
   topProducts: any[], dailyBreakdown: any[], salesWithItems: any[]
@@ -121,6 +121,7 @@ async function generatePDF(
   const gray50 = rgb(248/255, 250/255, 252/255);
   const gray100 = rgb(241/255, 245/255, 249/255);
   const gray200 = rgb(226/255, 232/255, 240/255);
+  const gray400 = rgb(148/255, 163/255, 184/255);
   const gray500 = rgb(100/255, 116/255, 139/255);
   const gray700 = rgb(51/255, 65/255, 85/255);
   const gray900 = rgb(15/255, 23/255, 42/255);
@@ -129,212 +130,215 @@ async function generatePDF(
   // LANDSCAPE A4: 842 x 595
   const W = 842;
   const H = 595;
-  const M = 36;
+  const M = 30; // tighter margin
   const contentW = W - 2 * M;
-  const halfW = (contentW - 20) / 2; // for side-by-side sections
+  const halfW = (contentW - 16) / 2;
 
   const totalTx = summary?.total_transactions || 0;
   const totalRevenue = summary?.total_revenue || 0;
   const totalDiscount = summary?.total_discount || 0;
+  const totalItemsSold = salesWithItems.reduce((s, sale) => s + sale.items.reduce((a: number, it: any) => a + it.qty, 0), 0);
+  const uniqueProducts = new Set(salesWithItems.flatMap(s => s.items.map((it: any) => it.sku))).size;
 
-  // === PAGE 1: Summary + Charts side by side ===
+  // === PAGE 1: Summary + Charts ===
   let page = pdfDoc.addPage([W, H]);
   let y = H - M;
 
-  // Header bar (slim)
-  page.drawRectangle({ x: 0, y: y - 42, width: W, height: 58, color: primary });
-  page.drawText('KAY ID TOKO BANGUNAN', { x: M, y: y - 5, size: 16, font: fontBold, color: white });
-  page.drawText(`${title}  •  ${periodLabel}`, { x: M, y: y - 24, size: 10, font: font, color: rgb(0.8, 0.8, 1) });
-  // Total revenue on right
-  page.drawText(formatCurrency(totalRevenue), { x: W - M - 180, y: y - 10, size: 18, font: fontBold, color: white });
-  page.drawText('TOTAL PENDAPATAN', { x: W - M - 150, y: y - 26, size: 8, font: font, color: rgb(0.7, 0.7, 0.9) });
-  y -= 58;
+  // Header (compact)
+  page.drawRectangle({ x: 0, y: y - 36, width: W, height: 50, color: primary });
+  page.drawText('KAY ID TOKO BANGUNAN', { x: M, y: y - 6, size: 15, font: fontBold, color: white });
+  page.drawText(`${title}  •  ${periodLabel}`, { x: M, y: y - 22, size: 9, font: font, color: rgb(0.85, 0.85, 1) });
+  page.drawText(formatCurrency(totalRevenue), { x: W - M - 160, y: y - 10, size: 16, font: fontBold, color: white });
+  page.drawText('TOTAL PENDAPATAN', { x: W - M - 140, y: y - 24, size: 7, font: font, color: rgb(0.75, 0.75, 0.95) });
+  y -= 46;
 
-  // Financial Summary - 5 cards (landscape = more room)
-  y -= 10;
-  const cardW = (contentW - 4 * 8) / 5;
+  // 5 Summary Cards (compact)
+  const cardGap = 6;
+  const cardW = (contentW - 4 * cardGap) / 5;
+  const cardH = 44;
   const cards = [
-    { label: 'Transaksi', value: `${totalTx}`, sub: `Rata-rata: ${formatCurrency(totalTx > 0 ? totalRevenue / totalTx : 0)}`, bg: primaryLight, accent: primary },
+    { label: 'Transaksi', value: `${totalTx}`, sub: `Avg: ${formatCurrency(totalTx > 0 ? totalRevenue / totalTx : 0)}`, bg: primaryLight, accent: primary },
     { label: 'Pendapatan', value: formatCurrency(totalRevenue), sub: `Diskon: ${formatCurrency(totalDiscount)}`, bg: rgb(209/255, 250/255, 229/255), accent: success },
-    { label: 'Modal (HPP)', value: formatCurrency(totalCOGS), sub: `COGS`, bg: rgb(254/255, 243/255, 199/255), accent: warning },
+    { label: 'Modal (HPP)', value: formatCurrency(totalCOGS), sub: 'COGS', bg: rgb(254/255, 243/255, 199/255), accent: warning },
     { label: 'Profit Bersih', value: formatCurrency(totalProfit), sub: `Margin: ${profitMargin}%`, bg: rgb(167/255, 243/255, 208/255), accent: success },
-    { label: 'Item Terjual', value: `${salesWithItems.reduce((s, sale) => s + sale.items.reduce((a: number, it: any) => a + it.qty, 0), 0)}`, sub: `${new Set(salesWithItems.flatMap(s => s.items.map((it: any) => it.sku))).size} produk unik`, bg: rgb(224/255, 231/255, 255/255), accent: rgb(99/255, 102/255, 241/255) },
+    { label: 'Item Terjual', value: `${totalItemsSold}`, sub: `${uniqueProducts} produk unik`, bg: rgb(224/255, 231/255, 255/255), accent: rgb(99/255, 102/255, 241/255) },
   ];
 
   cards.forEach((c, i) => {
-    const cx = M + i * (cardW + 8);
-    page.drawRectangle({ x: cx, y: y - 50, width: cardW, height: 50, color: c.bg });
-    page.drawText(c.label, { x: cx + 8, y: y - 13, size: 7, font: font, color: gray500 });
-    page.drawText(c.value, { x: cx + 8, y: y - 30, size: 10, font: fontBold, color: c.accent });
-    page.drawText(c.sub, { x: cx + 8, y: y - 42, size: 6, font: font, color: gray500 });
+    const cx = M + i * (cardW + cardGap);
+    page.drawRectangle({ x: cx, y: y - cardH, width: cardW, height: cardH, color: c.bg });
+    page.drawText(c.label, { x: cx + 6, y: y - 11, size: 7, font: font, color: gray500 });
+    page.drawText(c.value, { x: cx + 6, y: y - 26, size: 9, font: fontBold, color: c.accent });
+    page.drawText(c.sub, { x: cx + 6, y: y - 37, size: 6, font: font, color: gray500 });
   });
-  y -= 62;
+  y -= cardH + 10;
 
-  // Side-by-side: Daily Revenue (left) + Top Products (right)
+  // Side-by-side charts
   const chartY = y;
 
-  // LEFT: Daily Revenue Chart
+  // LEFT: Daily Revenue
   if (dailyBreakdown.length > 0) {
     const leftX = M;
     let ly = chartY;
-    page.drawRectangle({ x: leftX, y: ly - 16, width: halfW, height: 20, color: gray100 });
-    page.drawText('PENDAPATAN HARIAN', { x: leftX + 8, y: ly - 12, size: 8, font: fontBold, color: gray700 });
-    ly -= 28;
+    page.drawRectangle({ x: leftX, y: ly - 14, width: halfW, height: 18, color: gray100 });
+    page.drawText('PENDAPATAN HARIAN', { x: leftX + 6, y: ly - 10, size: 7, font: fontBold, color: gray700 });
+    ly -= 22;
 
     const maxRev = Math.max(...dailyBreakdown.map((d: any) => d.revenue));
-    const barMaxW = halfW - 100;
-    const barH = 12;
+    const barMaxW = halfW - 90;
+    const barH = 14;
 
     dailyBreakdown.sort((a: any, b: any) => a.tanggal.localeCompare(b.tanggal));
     dailyBreakdown.forEach((d: any) => {
-      if (ly < 50) return;
+      if (ly < 40) return;
       const pct = maxRev > 0 ? d.revenue / maxRev : 0;
       const dateShort = new Date(d.tanggal).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' });
-      page.drawText(dateShort, { x: leftX + 4, y: ly - 1, size: 6, font: font, color: gray500 });
+      page.drawText(dateShort, { x: leftX + 4, y: ly, size: 7, font: font, color: gray700 });
 
       const barW = pct * barMaxW;
-      page.drawRectangle({ x: leftX + 50, y: ly - 4, width: barW, height: barH, color: primary });
-      page.drawRectangle({ x: leftX + 50 + barW, y: ly - 4, width: barMaxW - barW, height: barH, color: gray100 });
+      page.drawRectangle({ x: leftX + 45, y: ly - 3, width: barW, height: barH, color: primary });
+      page.drawRectangle({ x: leftX + 45 + barW, y: ly - 3, width: barMaxW - barW, height: barH, color: gray100 });
 
-      page.drawText(formatCurrency(d.revenue), { x: leftX + 50 + barMaxW + 5, y: ly, size: 6, font: fontBold, color: gray700 });
-      ly -= barH + 3;
+      page.drawText(formatCurrency(d.revenue), { x: leftX + 45 + barMaxW + 4, y: ly, size: 7, font: fontBold, color: gray700 });
+      ly -= barH + 2;
     });
 
-    // Daily total line
-    ly -= 4;
-    page.drawLine({ start: { x: leftX + 4, y: ly + 8 }, end: { x: leftX + halfW - 4, y: ly + 8 }, thickness: 0.5, color: gray200 });
-    page.drawText('Total:', { x: leftX + 4, y: ly - 4, size: 7, font: fontBold, color: gray700 });
-    page.drawText(formatCurrency(totalRevenue), { x: leftX + halfW - 80, y: ly - 4, size: 7, font: fontBold, color: success });
+    // Total line
+    ly -= 3;
+    page.drawLine({ start: { x: leftX + 4, y: ly + 6 }, end: { x: leftX + halfW - 4, y: ly + 6 }, thickness: 0.5, color: gray200 });
+    page.drawText('Total:', { x: leftX + 4, y: ly - 3, size: 7, font: fontBold, color: gray700 });
+    page.drawText(formatCurrency(totalRevenue), { x: leftX + halfW - 70, y: ly - 3, size: 7, font: fontBold, color: success });
   }
 
-  // RIGHT: Top Products Chart
+  // RIGHT: Top Products
   if (topProducts.length > 0) {
-    const rightX = M + halfW + 20;
+    const rightX = M + halfW + 16;
     let ry = chartY;
-    page.drawRectangle({ x: rightX, y: ry - 16, width: halfW, height: 20, color: gray100 });
-    page.drawText('PRODUK TERLARIS', { x: rightX + 8, y: ry - 12, size: 8, font: fontBold, color: gray700 });
-    ry -= 28;
+    page.drawRectangle({ x: rightX, y: ry - 14, width: halfW, height: 18, color: gray100 });
+    page.drawText('PRODUK TERLARIS', { x: rightX + 6, y: ry - 10, size: 7, font: fontBold, color: gray700 });
+    ry -= 22;
 
     const maxQty = Math.max(...topProducts.map((p: any) => p.qty_sold));
-    const barMaxW = halfW - 160;
-    const barH = 12;
-    const colors = [warning, primary, success, rgb(139/255, 92/255, 246/255), rgb(236/255, 72/255, 153/255), gray500];
+    const barMaxW = halfW - 150;
+    const barH = 14;
+    const colors = [warning, primary, success, rgb(139/255, 92/255, 246/255), rgb(236/255, 72/255, 153/255), gray400];
 
     topProducts.slice(0, 8).forEach((p: any, i: number) => {
-      if (ry < 50) return;
+      if (ry < 40) return;
       const pct = maxQty > 0 ? p.qty_sold / maxQty : 0;
       const medal = i === 0 ? '1.' : i === 1 ? '2.' : i === 2 ? '3.' : `${i+1}.`;
       const color = colors[Math.min(i, colors.length - 1)];
 
-      page.drawText(medal, { x: rightX + 4, y: ry, size: 6, font: fontBold, color: gray700 });
-      const name = p.nama_barang.length > 20 ? p.nama_barang.substring(0, 20) + '..' : p.nama_barang;
-      page.drawText(name, { x: rightX + 20, y: ry, size: 6, font: font, color: gray700 });
+      page.drawText(medal, { x: rightX + 4, y: ry, size: 7, font: fontBold, color: gray700 });
+      const name = p.nama_barang.length > 22 ? p.nama_barang.substring(0, 22) + '..' : p.nama_barang;
+      page.drawText(name, { x: rightX + 22, y: ry, size: 7, font: font, color: gray700 });
 
       const barW = pct * barMaxW;
-      page.drawRectangle({ x: rightX + 70, y: ry - 3, width: barW, height: barH, color: color });
+      page.drawRectangle({ x: rightX + 65, y: ry - 3, width: barW, height: barH, color: color });
 
-      page.drawText(`${p.qty_sold}`, { x: rightX + 70 + barMaxW + 5, y: ry, size: 6, font: fontBold, color: gray700 });
-      page.drawText(formatCurrency(p.revenue), { x: rightX + 70 + barMaxW + 30, y: ry, size: 6, font: font, color: gray500 });
-      ry -= barH + 3;
+      page.drawText(`${p.qty_sold}`, { x: rightX + 65 + barMaxW + 4, y: ry, size: 7, font: fontBold, color: gray700 });
+      page.drawText(formatCurrency(p.revenue), { x: rightX + 65 + barMaxW + 25, y: ry, size: 7, font: font, color: gray500 });
+      ry -= barH + 2;
     });
 
-    // Total products line
-    ry -= 4;
-    page.drawLine({ start: { x: rightX + 4, y: ry + 8 }, end: { x: rightX + halfW - 4, y: ry + 8 }, thickness: 0.5, color: gray200 });
-    page.drawText('Total Produk:', { x: rightX + 4, y: ry - 4, size: 7, font: fontBold, color: gray700 });
+    // Total line
+    ry -= 3;
+    page.drawLine({ start: { x: rightX + 4, y: ry + 6 }, end: { x: rightX + halfW - 4, y: ry + 6 }, thickness: 0.5, color: gray200 });
     const totalQtySold = topProducts.reduce((s, p) => s + p.qty_sold, 0);
-    page.drawText(`${totalQtySold} unit`, { x: rightX + halfW - 60, y: ry - 4, size: 7, font: fontBold, color: primary });
+    page.drawText('Total Produk:', { x: rightX + 4, y: ry - 3, size: 7, font: fontBold, color: gray700 });
+    page.drawText(`${totalQtySold} unit`, { x: rightX + halfW - 50, y: ry - 3, size: 7, font: fontBold, color: primary });
   }
 
-  // === PAGE 2+: Transaction Detail (Landscape) ===
+  // === PAGE 2+: Transaction Detail (Compact) ===
   if (salesWithItems.length > 0) {
     page = pdfDoc.addPage([W, H]);
     y = H - M;
 
     // Header
-    page.drawRectangle({ x: 0, y: y - 30, width: W, height: 45, color: primary });
-    page.drawText('DETAIL TRANSAKSI', { x: M, y: y - 5, size: 14, font: fontBold, color: white });
-    page.drawText(`${salesWithItems.length} transaksi  •  Periode: ${periodLabel}`, { x: M, y: y - 20, size: 8, font: font, color: rgb(0.8, 0.8, 1) });
-    page.drawText(formatCurrency(totalRevenue), { x: W - M - 120, y: y - 10, size: 14, font: fontBold, color: white });
-    y -= 42;
+    page.drawRectangle({ x: 0, y: y - 28, width: W, height: 42, color: primary });
+    page.drawText('DETAIL TRANSAKSI', { x: M, y: y - 6, size: 13, font: fontBold, color: white });
+    page.drawText(`${salesWithItems.length} transaksi  •  ${periodLabel}`, { x: M, y: y - 20, size: 8, font: font, color: rgb(0.85, 0.85, 1) });
+    page.drawText(formatCurrency(totalRevenue), { x: W - M - 110, y: y - 10, size: 13, font: fontBold, color: white });
+    y -= 38;
 
-    // Table columns (landscape = wider)
-    const colX = { no: M, inv: M + 25, tgl: M + 160, item: M + 260, qty: M + 470, harga: M + 520, total: M + 620, buyer: M + 710 };
-    const rowH = 13;
+    // Table columns (compact)
+    const colX = { no: M, inv: M + 22, tgl: M + 150, item: M + 240, qty: M + 450, harga: M + 495, total: M + 590, buyer: M + 680 };
+    const rowH = 11;
 
     // Table header
-    page.drawRectangle({ x: M, y: y - 16, width: contentW, height: 16, color: primary });
-    page.drawText('No', { x: colX.no + 2, y: y - 12, size: 7, font: fontBold, color: white });
-    page.drawText('Invoice', { x: colX.inv, y: y - 12, size: 7, font: fontBold, color: white });
-    page.drawText('Tanggal', { x: colX.tgl, y: y - 12, size: 7, font: fontBold, color: white });
-    page.drawText('Nama Barang', { x: colX.item, y: y - 12, size: 7, font: fontBold, color: white });
-    page.drawText('Qty', { x: colX.qty, y: y - 12, size: 7, font: fontBold, color: white });
-    page.drawText('Harga Satuan', { x: colX.harga, y: y - 12, size: 7, font: fontBold, color: white });
-    page.drawText('Subtotal', { x: colX.total, y: y - 12, size: 7, font: fontBold, color: white });
-    page.drawText('Pembeli', { x: colX.buyer, y: y - 12, size: 7, font: fontBold, color: white });
-    y -= 20;
+    page.drawRectangle({ x: M, y: y - 14, width: contentW, height: 14, color: primary });
+    page.drawText('No', { x: colX.no + 2, y: y - 11, size: 7, font: fontBold, color: white });
+    page.drawText('Invoice', { x: colX.inv, y: y - 11, size: 7, font: fontBold, color: white });
+    page.drawText('Tanggal', { x: colX.tgl, y: y - 11, size: 7, font: fontBold, color: white });
+    page.drawText('Nama Barang', { x: colX.item, y: y - 11, size: 7, font: fontBold, color: white });
+    page.drawText('Qty', { x: colX.qty, y: y - 11, size: 7, font: fontBold, color: white });
+    page.drawText('Harga Satuan', { x: colX.harga, y: y - 11, size: 7, font: fontBold, color: white });
+    page.drawText('Subtotal', { x: colX.total, y: y - 11, size: 7, font: fontBold, color: white });
+    page.drawText('Pembeli', { x: colX.buyer, y: y - 11, size: 7, font: fontBold, color: white });
+    y -= 18;
 
     let no = 1;
     let grandTotal = 0;
     let grandQty = 0;
 
     for (const sale of salesWithItems) {
-      if (y < 55) { page = pdfDoc.addPage([W, H]); y = H - M; }
+      if (y < 50) { page = pdfDoc.addPage([W, H]); y = H - M; }
       const dateStr = formatDate(sale.tanggal);
 
-      // Sale header (merged row)
-      page.drawRectangle({ x: M, y: y - rowH, width: contentW, height: rowH, color: no % 2 === 0 ? gray50 : white, borderWidth: 0 });
+      // Sale header row
+      page.drawRectangle({ x: M, y: y - rowH, width: contentW, height: rowH, color: no % 2 === 0 ? gray50 : white });
       page.drawText(`${no}`, { x: colX.no + 2, y: y - rowH + 3, size: 7, font: font, color: gray500 });
       page.drawText(sale.invoice_no, { x: colX.inv, y: y - rowH + 3, size: 7, font: fontBold, color: gray900 });
       page.drawText(dateStr, { x: colX.tgl, y: y - rowH + 3, size: 7, font: font, color: gray500 });
       page.drawText(formatCurrency(sale.total), { x: colX.total, y: y - rowH + 3, size: 7, font: fontBold, color: success });
       page.drawText(sale.customer_name || '-', { x: colX.buyer, y: y - rowH + 3, size: 7, font: font, color: gray500 });
       grandTotal += sale.total;
-      y -= rowH + 1;
+      y -= rowH;
 
-      // Items
+      // Items (compact, no gap)
       for (const item of sale.items) {
-        if (y < 45) { page = pdfDoc.addPage([W, H]); y = H - M; }
-        const itemName = item.nama_barang.length > 35 ? item.nama_barang.substring(0, 35) + '..' : item.nama_barang;
-        page.drawText(itemName, { x: colX.item + 8, y: y - rowH + 3, size: 6, font: font, color: gray500 });
+        if (y < 40) { page = pdfDoc.addPage([W, H]); y = H - M; }
+        const itemName = item.nama_barang.length > 38 ? item.nama_barang.substring(0, 38) + '..' : item.nama_barang;
+        page.drawText(itemName, { x: colX.item + 6, y: y - rowH + 3, size: 6, font: font, color: gray500 });
         page.drawText(`${item.qty}x`, { x: colX.qty, y: y - rowH + 3, size: 6, font: font, color: gray500 });
         page.drawText(formatCurrency(item.harga_satuan), { x: colX.harga, y: y - rowH + 3, size: 6, font: font, color: gray500 });
         page.drawText(formatCurrency(item.subtotal), { x: colX.total, y: y - rowH + 3, size: 6, font: font, color: gray500 });
         grandQty += item.qty;
-        y -= rowH + 1;
+        y -= rowH;
       }
 
       if (sale.discount > 0) {
-        if (y < 45) { page = pdfDoc.addPage([W, H]); y = H - M; }
-        page.drawText(`Diskon: -${formatCurrency(sale.discount)}`, { x: colX.item + 8, y: y - 8, size: 6, font: font, color: danger });
-        y -= 10;
+        if (y < 40) { page = pdfDoc.addPage([W, H]); y = H - M; }
+        page.drawText(`Diskon: -${formatCurrency(sale.discount)}`, { x: colX.item + 6, y: y - 7, size: 6, font: font, color: danger });
+        y -= 8;
       }
 
+      // Thin separator
       page.drawLine({ start: { x: M, y: y }, end: { x: W - M, y: y }, thickness: 0.3, color: gray200 });
-      y -= 3;
+      y -= 2;
       no++;
     }
 
     // GRAND TOTAL ROW
-    y -= 5;
-    if (y < 70) { page = pdfDoc.addPage([W, H]); y = H - M; }
-    page.drawRectangle({ x: M, y: y - 28, width: contentW, height: 32, color: primary });
-    page.drawText('GRAND TOTAL', { x: M + 10, y: y - 10, size: 9, font: fontBold, color: white });
-    page.drawText(`${salesWithItems.length} transaksi`, { x: M + 10, y: y - 22, size: 7, font: font, color: rgb(0.8, 0.8, 1) });
-    page.drawText(`${grandQty} item`, { x: colX.qty, y: y - 10, size: 8, font: fontBold, color: white });
-    page.drawText(formatCurrency(grandTotal), { x: colX.total, y: y - 10, size: 10, font: fontBold, color: white });
-    page.drawText(`Profit: ${formatCurrency(totalProfit)}`, { x: colX.buyer, y: y - 10, size: 8, font: fontBold, color: rgb(167/255, 243/255, 208/255) });
-    page.drawText(`Margin: ${profitMargin}%`, { x: colX.buyer, y: y - 22, size: 6, font: font, color: rgb(0.8, 0.8, 1) });
-    y -= 40;
+    y -= 4;
+    if (y < 60) { page = pdfDoc.addPage([W, H]); y = H - M; }
+    page.drawRectangle({ x: M, y: y - 24, width: contentW, height: 28, color: primary });
+    page.drawText('GRAND TOTAL', { x: M + 8, y: y - 8, size: 8, font: fontBold, color: white });
+    page.drawText(`${salesWithItems.length} transaksi`, { x: M + 8, y: y - 19, size: 6, font: font, color: rgb(0.8, 0.8, 1) });
+    page.drawText(`${grandQty} item`, { x: colX.qty, y: y - 8, size: 7, font: fontBold, color: white });
+    page.drawText(formatCurrency(grandTotal), { x: colX.total, y: y - 8, size: 9, font: fontBold, color: white });
+    page.drawText(`Profit: ${formatCurrency(totalProfit)}`, { x: colX.buyer, y: y - 8, size: 7, font: fontBold, color: rgb(167/255, 243/255, 208/255) });
+    page.drawText(`Margin: ${profitMargin}%`, { x: colX.buyer, y: y - 19, size: 6, font: font, color: rgb(0.8, 0.8, 1) });
+    y -= 34;
   }
 
   // Footer
-  if (y < 40) { page = pdfDoc.addPage([W, H]); y = H - M; }
-  y -= 10;
+  if (y < 30) { page = pdfDoc.addPage([W, H]); y = H - M; }
+  y -= 8;
   page.drawLine({ start: { x: M, y: y }, end: { x: W - M, y: y }, thickness: 0.5, color: gray200 });
-  y -= 12;
-  page.drawText('Laporan otomatis dari sistem KAY ID Toko Bangunan', { x: M, y, size: 7, font: font, color: gray500 });
-  page.drawText(`Dicetak: ${new Date().toLocaleString('id-ID')}`, { x: W - M - 150, y, size: 7, font: font, color: gray500 });
+  y -= 10;
+  page.drawText('Laporan otomatis dari sistem KAY ID Toko Bangunan', { x: M, y, size: 6, font: font, color: gray500 });
+  page.drawText(`Dicetak: ${new Date().toLocaleString('id-ID')}`, { x: W - M - 140, y, size: 6, font: font, color: gray500 });
 
   return await pdfDoc.save();
 }
