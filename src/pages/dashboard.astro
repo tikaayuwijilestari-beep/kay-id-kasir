@@ -55,21 +55,43 @@ const totalProfit = stats?.total_profit || 0;
 const totalAsset = stats?.total_aset || 0;
 const totalSold = stats?.total_terjual || 0;
 const todayExp = todayExpense?.total || 0;
+
+interface StockItem {
+  nama_barang: string; sku: string; satuan: string;
+  stock_saat_ini: number; batas_stok_min: number;
+  pct: number; barColor: string; numColor: string;
+}
+
+const stockView: StockItem[] = lowStockItems.map((item: any) => {
+  const pct = item.batas_stok_min > 0 ? Math.min((item.stock_saat_ini / item.batas_stok_min) * 100, 100) : 0;
+  const barColor = pct < 30 ? 'var(--danger)' : pct < 70 ? 'var(--warning)' : 'var(--success)';
+  const numColor = pct < 30 ? 'var(--danger)' : 'var(--warning)';
+  return { ...item, pct, barColor, numColor };
+});
+
+const paymentLabel = (m: string) => m === 'manual' ? 'Tunai' : m === 'qris' ? 'QRIS' : 'Transfer';
 ---
 
 <Layout title="Dashboard" user={user} activePage="/dashboard">
+
+  <!-- Header: Greeting + Clock -->
   <div class="dash-header">
     <div class="dash-greeting">
       <h1>Selamat Datang, {user?.name || 'Admin'} 👋</h1>
       <p class="date-text" id="currentDate"></p>
     </div>
-    <div class="clock-card">
-      <div class="clock-time" id="liveClock">--:--:--</div>
-      <div class="clock-date" id="clockDateShort"></div>
+    <div class="clock-widget">
+      <div class="clock-inner">
+        <span class="clock-icon">🕐</span>
+        <div class="clock-body">
+          <div class="clock-time" id="liveClock">--:--:--</div>
+          <div class="clock-date" id="clockDateShort"></div>
+        </div>
+      </div>
     </div>
   </div>
 
-  <!-- Main Finance Cards -->
+  <!-- Main Finance Cards (2x2 gradient) -->
   <div class="finance-grid">
     <div class="fin-card fin-gradient-1">
       <div class="fin-content">
@@ -81,7 +103,7 @@ const todayExp = todayExpense?.total || 0;
           <span>{stats?.total_stock || 0} unit</span>
         </div>
       </div>
-      <div class="fin-emoji"></div>
+      <div class="fin-emoji">💰</div>
     </div>
     <div class="fin-card fin-gradient-2">
       <div class="fin-content">
@@ -121,117 +143,140 @@ const todayExp = todayExpense?.total || 0;
     </div>
   </div>
 
-  <!-- Quick Stats -->
+  <!-- Quick Stats Row (card style, matching above) -->
   <div class="quick-stats">
-    <div class="qs-item">
-      <div class="qs-icon qs-blue">📦</div>
-      <div>
+    <div class="qs-card">
+      <div class="qs-icon-wrap qs-ico-blue">📦</div>
+      <div class="qs-data">
         <span class="qs-num">{stats?.total_items || 0}</span>
         <span class="qs-label">Total Produk</span>
       </div>
     </div>
-    <div class="qs-item">
-      <div class="qs-icon qs-green">📊</div>
-      <div>
+    <div class="qs-card">
+      <div class="qs-icon-wrap qs-ico-green">📊</div>
+      <div class="qs-data">
         <span class="qs-num">{stats?.total_stock || 0}</span>
         <span class="qs-label">Total Stok</span>
       </div>
     </div>
-    <div class="qs-item qs-warn-item">
-      <div class="qs-icon qs-red">⚠️</div>
-      <div>
+    <div class="qs-card qs-card-warn">
+      <div class="qs-icon-wrap qs-ico-red">⚠️</div>
+      <div class="qs-data">
         <span class="qs-num">{stats?.low_stock || 0}</span>
         <span class="qs-label">Stok Menipis</span>
       </div>
     </div>
-    <div class="qs-item qs-ok-item">
-      <div class="qs-icon qs-emerald">💰</div>
-      <div>
+    <div class="qs-card qs-card-ok">
+      <div class="qs-icon-wrap qs-ico-emerald">💰</div>
+      <div class="qs-data">
         <span class="qs-num">{formatCurrency(totalProfit)}</span>
         <span class="qs-label">Profit Kumulatif</span>
       </div>
     </div>
   </div>
 
-  <!-- Bottom Grid: Recent Sales + Low Stock + Top Products -->
+  <!-- Section Title -->
+  <div class="section-divider">
+    <h2 class="section-title">Ringkasan Data</h2>
+  </div>
+
+  <!-- Bottom Grid: 3 panels -->
   <div class="bottom-grid">
+    <!-- Penjualan Terbaru -->
     <div class="dash-card">
       <div class="card-header">
-        <h3> Penjualan Terbaru</h3>
+        <h3>📋 Penjualan Terbaru</h3>
         <a href="/reports" class="btn-link">Lihat Semua →</a>
       </div>
+      <div class="card-table-head">
+        <span>Invoice</span><span>Tanggal</span><span class="th-right">Total</span><span class="th-right">Status</span>
+      </div>
       <div class="card-body">
-        {recentSales.map((s: any) => (
-          <div class="sale-row">
+        {recentSales.map((s: any, i: number) => (
+          <div class={`sale-row ${i % 2 === 1 ? 'row-alt' : ''}`}>
             <div class="sale-info">
               <strong>{s.invoice_no}</strong>
               <span class="sale-date">{s.tanggal}</span>
             </div>
             <div class="sale-right">
               <span class="sale-total">{formatCurrency(s.total)}</span>
-              <span class="badge badge-success">{s.payment_method === 'manual' ? 'Tunai' : s.payment_method === 'qris' ? 'QRIS' : 'Transfer'}</span>
+              <span class="badge badge-success">{paymentLabel(s.payment_method)}</span>
             </div>
           </div>
         ))}
         {(!recentSales || recentSales.length === 0) && (
-          <div class="empty-state"> Belum ada penjualan</div>
+          <div class="empty-state">
+            <span class="empty-icon">🧾</span>
+            <span>Belum ada penjualan</span>
+          </div>
         )}
       </div>
     </div>
 
+    <!-- Produk Terlaris -->
     <div class="dash-card">
       <div class="card-header">
-        <h3> Produk Terlaris</h3>
+        <h3>🏆 Produk Terlaris</h3>
         <a href="/inventory" class="btn-link">Kelola →</a>
+      </div>
+      <div class="card-table-head">
+        <span>Produk</span><span>SKU</span><span class="th-right">Terjual</span><span class="th-right">Revenue</span>
       </div>
       <div class="card-body">
         {topProducts.map((p: any, i: number) => (
-          <div class="sale-row">
+          <div class={`sale-row ${i % 2 === 1 ? 'row-alt' : ''}`}>
             <div class="sale-info">
-              <span class="rank-badge">#{i + 1}</span>
+              <div class="rank-wrap"><span class="rank-badge">#{i + 1}</span></div>
               <div>
                 <strong>{p.nama_barang}</strong>
-                <span class="sale-date">{p.sku} · {p.qty_sold} terjual</span>
+                <span class="sale-date">{p.sku}</span>
               </div>
             </div>
             <div class="sale-right">
-              <span class="sale-total">{formatCurrency(p.revenue)}</span>
+              <span class="sale-total">{p.qty_sold} unit</span>
+              <span class="sale-sub">{formatCurrency(p.revenue)}</span>
             </div>
           </div>
         ))}
         {(!topProducts || topProducts.length === 0) && (
-          <div class="empty-state">📦 Belum ada data penjualan</div>
+          <div class="empty-state">
+            <span class="empty-icon">📦</span>
+            <span>Belum ada data penjualan</span>
+          </div>
         )}
       </div>
     </div>
 
+    <!-- Stok Menipis -->
     <div class="dash-card">
       <div class="card-header">
         <h3>⚠️ Stok Menipis ({stats?.low_stock || 0})</h3>
         <a href="/inventory" class="btn-link">Kelola →</a>
       </div>
+      <div class="card-table-head">
+        <span>Nama Barang</span><span>SKU</span><span class="th-right">Stok</span><span class="th-right">Min</span>
+      </div>
       <div class="card-body">
-        {lowStockItems.map((item: any) => {
-          const pct = item.batas_stok_min > 0 ? Math.min((item.stock_saat_ini / item.batas_stok_min) * 100, 100) : 0;
-          const barColor = pct < 30 ? 'var(--danger)' : pct < 70 ? 'var(--warning)' : 'var(--success)';
-          const numColor = pct < 30 ? 'var(--danger)' : 'var(--warning)';
-          return (
-            <div class="stock-row">
-              <div class="stock-info">
-                <strong>{item.nama_barang}</strong>
-                <span class="sale-date">{item.sku} · Min: {item.batas_stok_min} {item.satuan}</span>
-              </div>
-              <div class="stock-right">
-                <div class="stock-bar-wrap">
-                  <div class="stock-bar" style={`width:${pct}%;background:${barColor}`}></div>
-                </div>
-                <span class="stock-num" style={`color:${numColor}`}>{item.stock_saat_ini}</span>
-              </div>
+        {stockView.map((item: StockItem, i: number) => (
+          <div class={`stock-row ${i % 2 === 1 ? 'row-alt' : ''}`}>
+            <div class="stock-info">
+              <strong>{item.nama_barang}</strong>
+              <span class="sale-date">{item.sku} · {item.satuan}</span>
             </div>
-          );
-        })}
-        {(!lowStockItems || lowStockItems.length === 0) && (
-          <div class="empty-state">✅ Semua stok aman</div>
+            <div class="stock-right">
+              <div class="stock-bar-wrap">
+                <div class="stock-bar" style={`width:${item.pct}%;background:${item.barColor}`}></div>
+              </div>
+              <span class="stock-num" style={`color:${item.numColor}`}>{item.stock_saat_ini}</span>
+              <span class="stock-min">/ {item.batas_stok_min}</span>
+            </div>
+          </div>
+        ))}
+        {(!stockView || stockView.length === 0) && (
+          <div class="empty-state">
+            <span class="empty-icon">✅</span>
+            <span>Semua stok aman</span>
+          </div>
         )}
       </div>
     </div>
@@ -257,32 +302,57 @@ const todayExp = todayExpense?.total || 0;
   </script>
 
   <style>
+    /* === HEADER === */
     .dash-header {
       display: flex;
       justify-content: space-between;
-      align-items: flex-start;
-      margin-bottom: 1.5rem;
+      align-items: center;
+      margin-bottom: 1.75rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--gray-100);
     }
-    .dash-greeting h1 { font-size: 1.6rem; font-weight: 700; margin-bottom: 0.2rem; }
-    .date-text { color: var(--gray-500); font-size: 0.9rem; }
-    .clock-card {
-      background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
-      color: white;
-      padding: 0.75rem 1.5rem;
+    .dash-greeting h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin-bottom: 0.35rem;
+      color: var(--gray-900);
+    }
+    .date-text {
+      color: var(--gray-500);
+      font-size: 0.85rem;
+      margin-top: 0.15rem;
+    }
+
+    /* === CLOCK WIDGET === */
+    .clock-widget {
+      background: white;
+      border: 1px solid var(--gray-200);
       border-radius: 1rem;
-      text-align: center;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.2);
-      min-width: 140px;
+      padding: 0.65rem 1.1rem;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.06);
     }
+    .clock-inner {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+    }
+    .clock-icon { font-size: 1.6rem; }
+    .clock-body { display: flex; flex-direction: column; }
     .clock-time {
-      font-size: 1.8rem;
+      font-size: 1.5rem;
       font-weight: 700;
       font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-      color: #60a5fa;
-      letter-spacing: 0.05em;
+      color: var(--primary);
+      letter-spacing: 0.04em;
+      line-height: 1.1;
     }
-    .clock-date { font-size: 0.7rem; color: rgba(255,255,255,0.5); margin-top: 0.15rem; }
+    .clock-date {
+      font-size: 0.68rem;
+      color: var(--gray-500);
+      margin-top: 0.1rem;
+    }
 
+    /* === FINANCE CARDS (2x2 gradient) === */
     .finance-grid {
       display: grid;
       grid-template-columns: repeat(2, 1fr);
@@ -300,68 +370,109 @@ const todayExp = todayExpense?.total || 0;
       cursor: default;
       position: relative;
       overflow: hidden;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.12);
     }
     .fin-card::before {
       content: '';
       position: absolute;
-      top: -50%;
-      right: -20%;
-      width: 200px;
-      height: 200px;
+      top: -40%;
+      right: -15%;
+      width: 180px;
+      height: 180px;
       border-radius: 50%;
-      background: rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.1);
+    }
+    .fin-card::after {
+      content: '';
+      position: absolute;
+      bottom: -30%;
+      left: -10%;
+      width: 120px;
+      height: 120px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.06);
     }
     .fin-card:hover {
-      transform: translateY(-3px);
-      box-shadow: 0 12px 32px rgba(0,0,0,0.15);
+      transform: translateY(-4px);
+      box-shadow: 0 14px 36px rgba(0,0,0,0.18);
     }
     .fin-gradient-1 { background: linear-gradient(135deg, #1a56db 0%, #3b82f6 100%); }
     .fin-gradient-2 { background: linear-gradient(135deg, #059669 0%, #10b981 100%); }
     .fin-gradient-3 { background: linear-gradient(135deg, #d97706 0%, #f59e0b 100%); }
     .fin-gradient-4 { background: linear-gradient(135deg, #7c3aed 0%, #8b5cf6 100%); }
-    .fin-content { display: flex; flex-direction: column; gap: 0.2rem; z-index: 1; }
+    .fin-content { display: flex; flex-direction: column; gap: 0.25rem; z-index: 1; }
     .fin-label { font-size: 0.8rem; opacity: 0.85; font-weight: 500; }
     .fin-value { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; }
-    .fin-meta { font-size: 0.72rem; opacity: 0.75; display: flex; gap: 0.3rem; align-items: center; margin-top: 0.2rem; }
+    .fin-meta {
+      font-size: 0.72rem; opacity: 0.75;
+      display: flex; gap: 0.35rem; align-items: center;
+      margin-top: 0.25rem;
+    }
     .fin-meta .dot { opacity: 0.5; }
-    .fin-emoji { font-size: 2.5rem; z-index: 1; opacity: 0.9; }
+    .fin-emoji { font-size: 2.8rem; z-index: 1; opacity: 0.85; }
 
+    /* === QUICK STATS (card style, consistent) === */
     .quick-stats {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
-      gap: 0.75rem;
+      gap: 1rem;
       margin-bottom: 1.5rem;
     }
-    .qs-item {
+    .qs-card {
       background: white;
-      border-radius: 0.85rem;
-      padding: 1rem 1.1rem;
+      border-radius: 1rem;
+      padding: 1.1rem 1.2rem;
       display: flex;
       align-items: center;
-      gap: 0.75rem;
-      box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+      gap: 0.85rem;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.06);
       border: 1px solid var(--gray-200);
+      transition: transform 0.15s, box-shadow 0.15s;
     }
-    .qs-icon {
-      width: 40px;
-      height: 40px;
-      border-radius: 0.6rem;
+    .qs-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 22px rgba(0,0,0,0.1);
+    }
+    .qs-card-warn { border-left: 4px solid var(--danger); }
+    .qs-card-ok { border-left: 4px solid var(--success); }
+    .qs-icon-wrap {
+      width: 46px;
+      height: 46px;
+      border-radius: 0.7rem;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 1.2rem;
+      font-size: 1.3rem;
       flex-shrink: 0;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
     }
-    .qs-blue { background: #dbeafe; }
-    .qs-green { background: #d1fae5; }
-    .qs-red { background: #fee2e2; }
-    .qs-emerald { background: #a7f3d0; }
-    .qs-item > div { display: flex; flex-direction: column; }
-    .qs-num { font-size: 1.1rem; font-weight: 700; color: var(--gray-900); line-height: 1.2; }
-    .qs-label { font-size: 0.72rem; color: var(--gray-500); }
-    .qs-warn-item .qs-num { color: var(--danger); }
-    .qs-ok-item .qs-num { color: var(--success); font-size: 0.95rem; }
+    .qs-ico-blue { background: linear-gradient(135deg, #dbeafe, #bfdbfe); }
+    .qs-ico-green { background: linear-gradient(135deg, #d1fae5, #a7f3d0); }
+    .qs-ico-red { background: linear-gradient(135deg, #fee2e2, #fecaca); }
+    .qs-ico-emerald { background: linear-gradient(135deg, #a7f3d0, #6ee7b7); }
+    .qs-data { display: flex; flex-direction: column; }
+    .qs-num {
+      font-size: 1.15rem;
+      font-weight: 800;
+      color: var(--gray-900);
+      line-height: 1.2;
+    }
+    .qs-label { font-size: 0.72rem; color: var(--gray-500); font-weight: 500; }
+    .qs-card-warn .qs-num { color: var(--danger); }
+    .qs-card-ok .qs-num { color: var(--success); font-size: 1rem; }
 
+    /* === SECTION DIVIDER === */
+    .section-divider {
+      margin-bottom: 1rem;
+      padding-bottom: 0.5rem;
+    }
+    .section-title {
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--gray-700);
+    }
+
+    /* === BOTTOM GRID (3 panels) === */
     .bottom-grid {
       display: grid;
       grid-template-columns: 1fr 1fr 1fr;
@@ -370,7 +481,7 @@ const todayExp = todayExpense?.total || 0;
     .dash-card {
       background: white;
       border-radius: 1rem;
-      box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+      box-shadow: 0 4px 14px rgba(0,0,0,0.06);
       border: 1px solid var(--gray-200);
       overflow: hidden;
     }
@@ -378,80 +489,108 @@ const todayExp = todayExpense?.total || 0;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 1rem 1.25rem;
-      border-bottom: 1px solid var(--gray-100);
+      padding: 0.9rem 1.25rem;
     }
     .card-header h3 { font-size: 0.95rem; font-weight: 600; }
     .btn-link {
-      font-size: 0.78rem;
+      font-size: 0.75rem;
       color: var(--primary);
       text-decoration: none;
-      font-weight: 500;
+      font-weight: 600;
+      padding: 0.3rem 0.6rem;
+      border-radius: 0.4rem;
+      background: var(--primary-light);
+      transition: background 0.15s;
     }
-    .btn-link:hover { text-decoration: underline; }
-    .card-body { padding: 0.5rem 0; }
+    .btn-link:hover { background: #dbeafe; }
 
+    /* === TABLE HEADERS (inside cards) === */
+    .card-table-head {
+      display: grid;
+      grid-template-columns: 1fr 1fr 0.6fr 0.6fr;
+      padding: 0.5rem 1.25rem;
+      font-size: 0.7rem;
+      font-weight: 600;
+      color: var(--gray-500);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      background: var(--gray-50);
+      border-top: 1px solid var(--gray-100);
+      border-bottom: 1px solid var(--gray-100);
+    }
+    .th-right { text-align: right; }
+    .card-body { padding: 0.25rem 0; }
+
+    /* === ROWS === */
     .sale-row {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 0.7rem 1.25rem;
+      padding: 0.65rem 1.25rem;
       transition: background 0.1s;
     }
-    .sale-row:hover { background: var(--gray-50); }
-    .sale-info { display: flex; flex-direction: column; gap: 0.1rem; }
-    .sale-info strong { font-size: 0.85rem; }
-    .sale-date { font-size: 0.72rem; color: var(--gray-500); }
-    .sale-right { display: flex; flex-direction: column; align-items: flex-end; gap: 0.2rem; }
-    .sale-total { font-size: 0.9rem; font-weight: 700; }
+    .sale-row:hover { background: #f8fafc; }
+    .row-alt { background: var(--gray-50); }
+    .row-alt:hover { background: #f1f5f9; }
+    .sale-info { display: flex; align-items: center; gap: 0.5rem; }
+    .sale-info strong { font-size: 0.83rem; }
+    .sale-date { font-size: 0.7rem; color: var(--gray-500); }
+    .sale-right { display: flex; flex-direction: column; align-items: flex-end; gap: 0.15rem; }
+    .sale-total { font-size: 0.88rem; font-weight: 700; }
+    .sale-sub { font-size: 0.7rem; color: var(--gray-500); }
 
+    .rank-wrap { flex-shrink: 0; }
     .rank-badge {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 24px;
-      height: 24px;
+      width: 26px;
+      height: 26px;
       border-radius: 50%;
-      background: var(--primary-light);
+      background: linear-gradient(135deg, var(--primary-light), #dbeafe);
       color: var(--primary);
       font-size: 0.7rem;
       font-weight: 700;
-      margin-right: 0.5rem;
+      box-shadow: 0 1px 4px rgba(26,86,219,0.2);
     }
-    .sale-info .rank-badge + div { display: flex; flex-direction: column; gap: 0.1rem; }
-    .sale-info:has(.rank-badge) { flex-direction: row; align-items: center; }
 
+    /* === STOCK ROWS === */
     .stock-row {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 0.7rem 1.25rem;
+      padding: 0.65rem 1.25rem;
+      transition: background 0.1s;
     }
-    .stock-row:hover { background: var(--gray-50); }
+    .stock-row:hover { background: #f8fafc; }
     .stock-info { display: flex; flex-direction: column; gap: 0.1rem; }
-    .stock-info strong { font-size: 0.85rem; }
-    .stock-right { display: flex; align-items: center; gap: 0.6rem; }
+    .stock-info strong { font-size: 0.83rem; }
+    .stock-right { display: flex; align-items: center; gap: 0.5rem; }
     .stock-bar-wrap {
-      width: 60px;
+      width: 55px;
       height: 6px;
       background: var(--gray-200);
       border-radius: 3px;
       overflow: hidden;
     }
-    .stock-bar {
-      height: 100%;
-      border-radius: 3px;
-      transition: width 0.3s;
-    }
-    .stock-num { font-size: 0.85rem; font-weight: 700; min-width: 24px; text-align: right; }
+    .stock-bar { height: 100%; border-radius: 3px; transition: width 0.3s; }
+    .stock-num { font-size: 0.88rem; font-weight: 700; min-width: 22px; text-align: right; }
+    .stock-min { font-size: 0.68rem; color: var(--gray-400); }
 
+    /* === EMPTY STATE === */
     .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.5rem;
       text-align: center;
-      padding: 2rem 1rem;
+      padding: 2.5rem 1rem;
       color: var(--gray-500);
       font-size: 0.85rem;
     }
+    .empty-icon { font-size: 2rem; opacity: 0.6; }
 
+    /* === RESPONSIVE === */
     @media (max-width: 1024px) {
       .bottom-grid { grid-template-columns: 1fr 1fr; }
     }
@@ -459,7 +598,7 @@ const todayExp = todayExpense?.total || 0;
       .finance-grid { grid-template-columns: 1fr; }
       .quick-stats { grid-template-columns: repeat(2, 1fr); }
       .bottom-grid { grid-template-columns: 1fr; }
-      .dash-header { flex-direction: column; gap: 0.75rem; }
+      .dash-header { flex-direction: column; gap: 0.75rem; align-items: flex-start; }
     }
   </style>
 </Layout>

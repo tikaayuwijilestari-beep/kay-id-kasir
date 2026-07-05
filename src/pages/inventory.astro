@@ -202,7 +202,7 @@ const itemsView: ItemView[] = items.map((item: any) => {
       ))}
     {itemsView.length === 0 && (
       <div class="empty-grid">
-        <div class="empty-icon"></div>
+        <div class="empty-icon">📦</div>
         <h3>Tidak ada barang ditemukan</h3>
         <p>{search || kategori || statusFilter ? 'Coba ubah filter pencarian Anda.' : 'Tambahkan barang pertama Anda untuk mulai mengelola inventory.'}</p>
         {!search && !kategori && !statusFilter && (
@@ -328,26 +328,32 @@ const itemsView: ItemView[] = items.map((item: any) => {
     }
     .sum-card {
       background: white;
-      border-radius: 0.85rem;
-      padding: 1rem 1.1rem;
+      border-radius: 1rem;
+      padding: 1.1rem 1.2rem;
       display: flex;
       align-items: center;
-      gap: 0.75rem;
-      box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+      gap: 0.85rem;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.06);
       border: 1px solid var(--gray-200);
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .sum-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 22px rgba(0,0,0,0.1);
     }
     .sum-icon {
-      width: 44px; height: 44px;
-      border-radius: 0.65rem;
+      width: 46px; height: 46px;
+      border-radius: 0.7rem;
       display: flex; align-items: center; justify-content: center;
       font-size: 1.3rem; flex-shrink: 0;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
     }
     .sum-blue { background: #dbeafe; }
     .sum-green { background: #d1fae5; }
     .sum-amber { background: #fef3c7; }
     .sum-red { background: #fee2e2; }
     .sum-info { display: flex; flex-direction: column; }
-    .sum-value { font-size: 1.15rem; font-weight: 700; line-height: 1.2; }
+    .sum-value { font-size: 1.15rem; font-weight: 800; line-height: 1.2; }
     .sum-label { font-size: 0.72rem; color: var(--gray-500); }
 
     .filter-bar {
@@ -411,14 +417,14 @@ const itemsView: ItemView[] = items.map((item: any) => {
       background: white;
       border-radius: 1rem;
       padding: 1.25rem;
-      box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+      box-shadow: 0 4px 14px rgba(0,0,0,0.06);
       border: 1px solid var(--gray-200);
       border-left: 4px solid var(--success);
-      transition: transform 0.15s, box-shadow 0.15s;
+      transition: transform 0.2s, box-shadow 0.2s;
     }
     .item-card:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 6px 20px rgba(0,0,0,0.08);
+      transform: translateY(-3px);
+      box-shadow: 0 10px 28px rgba(0,0,0,0.1);
     }
     .item-low { border-left-color: var(--danger); }
     .item-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
@@ -480,7 +486,7 @@ const itemsView: ItemView[] = items.map((item: any) => {
       background: white; border-radius: 1rem;
       border: 2px dashed var(--gray-200);
     }
-    .empty-icon { font-size: 3rem; margin-bottom: 0.75rem; }
+    .empty-icon { font-size: 3rem; margin-bottom: 0.75rem; opacity: 0.6; }
     .empty-grid h3 { font-size: 1.1rem; margin-bottom: 0.4rem; }
     .empty-grid p { color: var(--gray-500); font-size: 0.9rem; margin-bottom: 1.25rem; }
 
